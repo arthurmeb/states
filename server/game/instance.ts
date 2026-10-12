@@ -8,17 +8,35 @@ export const MONTH_MS = Number(process.env.GAME_MONTH_MS) || DEFAULT_MONTH_MS
 export const DAY_MS = MONTH_MS / DAYS_PER_MONTH
 
 interface Client { send: (data: string) => void; token: string | null }
-interface Server { game: Game; clients: Map<string, Client>; timer?: ReturnType<typeof setInterval> }
+interface Server { game: Game; clients: Map<string, Client>; timer?: ReturnType<typeof setTimeout>; speed: number; lastBroadcast: number }
+/** Fast-forward is a development tool: on in `nuxt dev`, or in production with STATES_ALLOW_SPEED=1. */
+export const CAN_SPEED = process.env.NODE_ENV !== 'production' || process.env.STATES_ALLOW_SPEED === '1'
+const MIN_DAY_MS = 60 // the simulation needs ~40 ms per day
+const dayMs = (s: Server) => Math.max(MIN_DAY_MS, DAY_MS / s.speed)
+
+function loop(s: Server) {
+  s.timer = setTimeout(() => {
+    try { s.game.step() } catch (e) { console.error('[states] tick failed', e) }
+    // at high speed, don't flood clients: at most ~4 snapshots a second
+    const now = Date.now()
+    if (now - s.lastBroadcast >= 250) { s.lastBroadcast = now; broadcast(s) }
+    loop(s)
+  }, dayMs(s))
+}
+export function setSpeed(x: number) {
+  const s = server()
+  if (!CAN_SPEED) throw new GameError('Fast-forward is disabled on this server.')
+  s.speed = Math.max(1, Math.min(2000, Math.round(x)))
+  clearTimeout(s.timer); loop(s); broadcast(s)
+  console.log(`[states] speed ×${s.speed}`)
+}
 const g = globalThis as unknown as { __states?: Server }
 
 export function server(): Server {
   if (!g.__states) {
     const game = new Game(process.env.STATES_DATA_DIR || join(process.cwd(), '.data'), join(process.cwd(), 'public'))
-    const s: Server = { game, clients: new Map() }
-    s.timer = setInterval(() => {
-      try { game.step() } catch (e) { console.error('[states] tick failed', e) }
-      broadcast(s)
-    }, DAY_MS)
+    const s: Server = { game, clients: new Map(), speed: 1, lastBroadcast: 0 }
+    loop(s)
     const shutdown = () => { try { game.save() } catch { /* ignore */ } }
     process.once('SIGINT', shutdown); process.once('SIGTERM', shutdown)
     g.__states = s
@@ -28,7 +46,8 @@ export function server(): Server {
 }
 
 function send(c: Client, msg: ServerMsg) { try { c.send(JSON.stringify(msg)) } catch { /* closed */ } }
-export function broadcast(s: Server) { for (const c of s.clients.values()) send(c, s.game.snapshot(c.token, DAY_MS)) }
+const snap = (s: Server, token: string | null) => ({ ...s.game.snapshot(token, dayMs(s)), speed: s.speed, canSpeed: CAN_SPEED })
+export function broadcast(s: Server) { for (const c of s.clients.values()) send(c, snap(s, c.token)) }
 export function connect(id: string, sendFn: (d: string) => void) { server().clients.set(id, { send: sendFn, token: null }) }
 export function disconnect(id: string) {
   const s = server(), c = s.clients.get(id)
@@ -50,10 +69,16 @@ export function handle(id: string, raw: string) {
       c.token = token
       game.online.add(token)
       send(c, { t: 'welcome', token, nation: game.players[token], chat: game.chat })
-      send(c, game.snapshot(token, DAY_MS))
+      send(c, snap(s, token))
       return
     }
     if (!c.token) return
+    if (msg.t === 'trajectory') {
+      const data = game.trajectory(+msg.nation)
+      if (data) send(c, { t: 'trajectory', data })
+      return
+    }
+    if (msg.t === 'speed') { setSpeed(+msg.x || 1); return }
     if (msg.t === 'inspect') {
       if (game.P[+msg.province]) send(c, { t: 'province', detail: game.provinceDetail(+msg.province) })
       return

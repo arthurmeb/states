@@ -45,7 +45,7 @@ function declare() { if (n.value && confirm(`Declare war on ${n.value.name}? The
       <div v-if="partner"><span class="muted">Trade with you:</span> {{ fmtMoney((partner.exports + partner.imports) * 12) }}/yr · <span class="muted">your influence</span> {{ Math.round(partner.influenceOver) }} · <span class="muted">theirs</span> {{ Math.round(partner.influenceBy) }}<span v-if="n.ai"> · <span class="muted">attitude</span> <b :class="partner.attitude > 20 ? 'good' : partner.attitude < -20 ? 'bad' : ''">{{ partner.attitude }}</b></span></div>
     </div>
     <div class="actions">
-      <button class="btn block" @click="locate">Locate on globe</button>
+      <div class="grid2"><button class="btn" @click="locate">Locate on globe</button><button v-if="me" class="btn" @click="ui.trajSubject = n.id; ui.gov = 'trajectory'">📈 Trajectory</button></div>
       <template v-if="me && rel !== 'self'">
         <div class="grid2" style="margin-top:6px">
           <template v-if="rel === 'war'"><button class="btn good" @click="send({ t: 'propose', nation: n.id, kind: 'peace' })">Propose peace</button></template>

@@ -132,10 +132,16 @@ export interface GamesState { edition: number; nextTick: number; host: number | 
 
 export interface MarketState { prices: number[]; oilShock: string[] }
 
+export interface LogEntry { t: number; kind: 'policy' | 'budget' | 'gov' | 'strategy' | 'local' | 'build' | 'war' | 'diplo' | 'territory'; text: string }
+export interface Trajectory { nation: number; history: { t: number[]; series: Record<string, number[]> }; log: LogEntry[] }
+
 export interface StateMsg {
   t: 'state'
   tick: number
   dayMs: number
+  /** Dev fast-forward multiplier; canSpeed is true when the server allows changing it. */
+  speed: number
+  canSpeed: boolean
   market: MarketState
   prov: { owner: number[]; pop: number[]; garrison: number[]; unrest: number[]; gdppc: number[]; top: number[]; dev: number[]; build: number[] }
   nations: NationPublic[]
@@ -153,6 +159,8 @@ export interface StateMsg {
 
 export type ClientMsg =
   | { t: 'hello'; token: string }
+  | { t: 'trajectory'; nation: number }
+  | { t: 'speed'; x: number }
   | { t: 'found'; province: number; name: string; leader: string; color: string; motto: string }
   | { t: 'policy'; id: string; value: string | number }
   | { t: 'budget'; budget: Budget }
@@ -184,6 +192,7 @@ export type ClientMsg =
 
 export type ServerMsg =
   | StateMsg
+  | { t: 'trajectory'; data: Trajectory }
   | { t: 'welcome'; token: string; nation: number | null; chat: ChatMsg[] }
   | { t: 'error'; msg: string }
   | { t: 'toast'; msg: string }

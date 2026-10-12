@@ -13,7 +13,7 @@ const incoming = computed(() => snap.value?.proposals.filter(p => p.to === me.va
 const QUICK: { id: GovSection; label: string; icon: string }[] = [
   { id: 'budget', label: 'Budget', icon: '💰' }, { id: 'economy', label: 'Industry', icon: '🏭' }, { id: 'welfare', label: 'Welfare', icon: '🏥' },
   { id: 'society', label: 'Society', icon: '⚖' }, { id: 'foreign', label: 'Foreign', icon: '🌐' }, { id: 'defense', label: 'Defence', icon: '🎖' },
-  { id: 'territories', label: 'Provinces', icon: '🗺' }, { id: 'culture', label: 'Soft power', icon: '🎭' }, { id: 'indices', label: 'Indices', icon: '📊' },
+  { id: 'territories', label: 'Provinces', icon: '🗺' }, { id: 'culture', label: 'Soft power', icon: '🎭' }, { id: 'trajectory', label: 'Trajectory', icon: '📈' },
 ]
 async function shareDevice() {
   const link = deviceLink()

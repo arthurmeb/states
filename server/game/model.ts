@@ -1,3 +1,5 @@
+import type { LogEntry } from '../../shared/types'
+import type { Tracker } from './trajectory'
 import type { SectorId } from '../../shared/sectors'
 import type { BlocId, Ideology, LocalPolicyId, Mods } from '../../shared/policies'
 import type { Budget, Issue, Ledger, PolicyValues } from '../../shared/types'
@@ -73,6 +75,8 @@ export interface Nation {
   nextElection: number | null
   idx: Record<string, number>
   history: { t: number[]; series: Record<string, number[]> }
+  log: LogEntry[]
+  tracker?: Tracker
   gdpMonthly: number[]
   ledger: Ledger
   mods: Mods
@@ -86,4 +90,5 @@ export interface Nation {
   projectNational: Record<string, number>
 }
 
-export const HISTORY_KEYS = ['gdp', 'gdppc', 'growth', 'inflation', 'unemployment', 'debt', 'hdi', 'happiness', 'approval', 'stability', 'softPower', 'military', 'cnp', 'influence', 'gini', 'education', 'lifeExp', 'democracy']
+export const HISTORY_KEYS = ['gdp', 'gdppc', 'growth', 'inflation', 'unemployment', 'debt', 'hdi', 'happiness', 'approval', 'stability', 'softPower', 'military', 'cnp', 'influence', 'gini', 'education', 'lifeExp', 'democracy',
+  'deficit', 'revenue', 'exports', 'complexity', 'competitiveness', 'innovation', 'fdi', 'credit', 'poverty', 'safety', 'cpi', 'freedom', 'renewables', 'airQuality', 'health', 'infrastructure']

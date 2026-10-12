@@ -1,8 +1,8 @@
 import { reactive, shallowRef, computed } from 'vue'
-import type { ChatMsg, City, ClientMsg, CountryData, NationPublic, ProvinceDetail, ProvinceStatic, ServerMsg, StateMsg } from '~~/shared/types'
+import type { ChatMsg, City, ClientMsg, CountryData, NationPublic, ProvinceDetail, ProvinceStatic, ServerMsg, StateMsg, Trajectory } from '~~/shared/types'
 
 export type MapMode = 'political' | 'diplomatic' | 'blocs' | 'terrain' | 'resources' | 'industry' | 'wealth' | 'development' | 'population' | 'unrest' | 'influence'
-export type GovSection = 'overview' | 'indices' | 'economy' | 'budget' | 'welfare' | 'society' | 'governance' | 'environment' | 'culture' | 'defense' | 'foreign' | 'territories' | 'world'
+export type GovSection = 'overview' | 'indices' | 'economy' | 'budget' | 'welfare' | 'society' | 'governance' | 'environment' | 'culture' | 'defense' | 'foreign' | 'territories' | 'world' | 'trajectory'
 
 const snap = shallowRef<StateMsg | null>(null)
 const provinces = shallowRef<ProvinceStatic[]>([])
@@ -24,6 +24,9 @@ const ui = reactive({
   panelOpen: true,
   /** Phone layout: which bottom sheet is open. */
   sheet: null as null | 'nation' | 'wire' | 'modes',
+  /** Full weekly history + decision log per nation, fetched on demand. */
+  trajectories: {} as Record<number, Trajectory>,
+  trajSubject: null as number | null,
   lastTickAt: 0,
   flyTo: null as { lat: number; lon: number; zoom?: number; seq: number } | null,
   details: {} as Record<number, ProvinceDetail>,
@@ -82,6 +85,7 @@ function connect() {
       case 'toast': toast(msg.msg); break
       case 'error': toast(msg.msg, 'err'); break
       case 'province': ui.details[msg.detail.id] = msg.detail; break
+      case 'trajectory': ui.trajectories[msg.data.nation] = msg.data; break
     }
   }
 }

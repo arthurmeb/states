@@ -4,7 +4,9 @@ import { dateOf, DAYS_PER_MONTH } from '~~/shared/rules'
 import { SECTOR_INDEX } from '~~/shared/sectors'
 import { useGame, fmtMoney, fmtPop } from '~/composables/useGame'
 
-const { snap, me, ui, fly, provinces } = useGame()
+const { snap, me, ui, fly, provinces, send } = useGame()
+/** Dev fast-forward: 1× live clock, 30× (month = 2 min), 360× (month = 10 s), max (~month = 2 s). */
+const SPEEDS: [number, string, string][] = [[1, '▶', 'Live'], [30, '⏩', '30×'], [360, '⏭', '360×'], [2000, '🚀', 'Max']]
 const online = computed(() => snap.value?.nations.filter(n => n.online).length ?? 0)
 const progress = ref(0)
 let raf = 0
@@ -47,6 +49,9 @@ function home() { const m = me.value; const p = m && provinces.value[m.capital];
     <button v-if="snap?.issue" class="btn issue" @click="ui.showIssue = true">📜 {{ snap.issue.title }}</button>
     <span v-if="me && me.wars.length" class="tag war">⚔ WAR ×{{ me.wars.length }}</span>
 
+    <div v-if="snap?.canSpeed" class="speed" title="Fast-forward (development only): speeds up the whole world">
+      <button v-for="[x, ic, l] in SPEEDS" :key="x" :class="{ on: snap.speed === x }" :title="l" @click="send({ t: 'speed', x })">{{ ic }}<small>{{ l }}</small></button>
+    </div>
     <a class="btn guide" href="/guide" target="_blank" title="How to play, references and data sources">📖 Guide</a>
     <div class="toggles">
       <button class="tg" :class="{ on: ui.basemap === 'night' }" title="Day / night lights" @click="ui.basemap = ui.basemap === 'day' ? 'night' : 'day'">{{ ui.basemap === 'night' ? '🌙' : '☀' }}</button>
@@ -77,6 +82,10 @@ function home() { const m = me.value; const p = m && provinces.value[m.capital];
 @keyframes glow { 50% { box-shadow: 0 0 14px rgba(255, 212, 59, 0.45); } }
 .toggles { display: flex; gap: 4px; }
 .guide { text-decoration: none; }
+.speed { display: flex; gap: 2px; padding: 2px; border: 1px dashed rgba(255, 212, 59, .45); border-radius: 7px; }
+.speed button { background: none; border: 0; border-radius: 5px; padding: 3px 6px; font-size: 12px; color: var(--muted); display: flex; gap: 3px; align-items: center; }
+.speed button small { font-size: 9.5px; font-weight: 700; }
+.speed button.on { background: rgba(255, 212, 59, .16); color: var(--accent); }
 .tg { background: rgba(255,255,255,.05); border: 1px solid var(--line); border-radius: 6px; width: 30px; height: 28px; font-size: 14px; }
 .tg.on { border-color: var(--accent); background: rgba(255,212,59,.12); }
 @media (max-width: 1450px) { .stats > div:nth-child(4), .stats > div:nth-child(2), .clock { display: none; } }
@@ -84,6 +93,7 @@ function home() { const m = me.value; const p = m && provinces.value[m.capital];
 @media (max-width: 900px) {
   .top { top: calc(6px + env(safe-area-inset-top)); left: 6px; right: 6px; height: 44px; gap: 8px; padding: 0 8px; }
   .menu, .clock, .market, .issue, .logo { display: none; }
+  .speed button small { display: none; }
   .nation { padding-left: 8px; min-width: 0; overflow: hidden; }
   .nation b { overflow: hidden; text-overflow: ellipsis; max-width: 34vw; }
   .date { min-width: 0; padding: 3px 6px; font-size: 11px; }

@@ -92,6 +92,7 @@ const TOOLS = [
         <section id="clock">
           <h2>Time & pacing</h2>
           <p>One tick is one game day. On a live server <b>one game month lasts one real hour</b> (a year takes 12 hours), so a policy that needs a decade to pay off plays out over a few real days. The date and a progress bar for the current day sit in the top-left.</p>
+          <p>A game day passes every 2 real minutes, and a game week (when AI nations make their moves, markets clear and your trajectory is sampled) every 14 minutes. On development servers a dashed <b>▶ ⏩ ⏭ 🚀</b> control in the top bar fast-forwards the whole world, up to about a month every two seconds.</p>
           <ul>
             <li><b>Daily:</b> every province's employment, output, services and people; national finances; factions; battles; every index.</li>
             <li><b>Weekly:</b> world markets clear, trade flows and influence are recalculated, AI nations make decisions.</li>
@@ -146,6 +147,7 @@ const TOOLS = [
           <p>Open it with 🏛 in the top bar or the Situation panel. Ministries:</p>
           <div class="cards">
             <div class="card"><b>🏛 Overview</b><p>Alerts, headline indices with world ranks and trends, factions and their political weight, national capital, world standing.</p></div>
+            <div class="card"><b>📈 Trajectory</b><p>Weekly history of 30+ indices with every decision you (or any nation) made pinned on the chart: policies, budget lines, provincial policy, projects, wars, treaties and territory. Each decision shows what the chosen metric did over the next 6 months. Overlay a rival to compare paths.</p></div>
             <div class="card"><b>📊 All indices</b><p>All {{ INDICES.length }} indices with value, world rank, median and method. Click one for its history and world leaders.</p></div>
             <div class="card"><b>🗺 Territories</b><p>Every province in a sortable table: people, GDP, jobs, happiness, unrest, education, projects. Click to enter.</p></div>
             <div class="card"><b>🏭 Industry & markets</b><p>Output, jobs, exports, imports and world price for 17 industries; what is locked and why; pick subsidy targets.</p></div>

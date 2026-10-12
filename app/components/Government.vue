@@ -7,6 +7,7 @@ const { ui, me, snap } = useGame()
 const NAV: { id: GovSection; label: string; icon: string; group?: string }[] = [
   { id: 'overview', label: 'Overview', icon: '🏛', group: 'State' },
   { id: 'indices', label: 'All indices', icon: '📊' },
+  { id: 'trajectory', label: 'Trajectory', icon: '📈' },
   { id: 'territories', label: 'Territories', icon: '🗺' },
   { id: 'economy', label: 'Industry & markets', icon: '🏭', group: 'Economy' },
   { id: 'budget', label: 'Taxes & budget', icon: '💰' },
@@ -20,7 +21,7 @@ const NAV: { id: GovSection; label: string; icon: string; group?: string }[] = [
   { id: 'world', label: 'World & rankings', icon: '🌍' },
 ]
 const section = computed(() => ui.gov ?? 'overview')
-const close = () => { ui.gov = null }
+const close = () => { ui.gov = null; ui.trajSubject = null }
 </script>
 
 <template>
@@ -60,6 +61,7 @@ const close = () => { ui.gov = null }
         </header>
         <GovOverview v-if="section === 'overview'" />
         <GovIndices v-else-if="section === 'indices'" />
+        <GovTrajectory v-else-if="section === 'trajectory'" />
         <GovTerritories v-else-if="section === 'territories'" />
         <GovEconomy v-else-if="section === 'economy'" />
         <GovBudget v-else-if="section === 'budget'" />

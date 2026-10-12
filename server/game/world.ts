@@ -1,14 +1,13 @@
 import { writeFileSync, existsSync, mkdirSync, renameSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import type { BattleResult, Battle, ChatMsg, GamesState, MarketState, NationPrivate, NationPublic, News, NewsKind, ProposalKind, Proposal, ProvinceDetail, StateMsg, TradeBloc, CountryData, City, ProvinceStatic, Budget } from '../../shared/types'
+import type { BattleResult, Battle, ChatMsg, GamesState, MarketState, NationPrivate, NationPublic, News, NewsKind, ProposalKind, Proposal, ProvinceDetail, StateMsg, Trajectory, TradeBloc, CountryData, City, ProvinceStatic, Budget } from '../../shared/types'
 import { SECTORS, NS, SECTOR_IDS, type SectorId } from '../../shared/sectors'
 import { POLICY_MAP, BUDGET, LOCAL_POLICIES, DEFAULT_LOCAL, BLOCS, type LocalPolicyId, type BlocId } from '../../shared/policies'
 import { PROJECT_MAP, type ProjectDef } from '../../shared/projects'
 import { claimCost, DAYS_PER_MONTH, PROTECTION_DAYS, TRUCE_DAYS, DEMOCRATIC, dateOf } from '../../shared/rules'
 import { loadWorldData, baselineOf, type Baseline } from './data'
 import type { Nation, Prov } from './model'
-import { HISTORY_KEYS } from './model'
 import { computeMods, defaultBudget, defaultPolicy } from './mods'
 import { staticFit, initProvinces, provinceEconomy, statelessCtx, nationCtx, NOFF, type Ctx } from './economy'
 import { aggregate, nationDay, calibrateNation } from './nation'
@@ -18,11 +17,15 @@ import { tradeWeek, influenceOf } from './trade'
 import { GameError, launchAttack, resolveBattles } from './military'
 import { ISSUES, worldMonth } from './events'
 import { setupAINation, aiWeek, aiAccepts, attitude, revealedIdeology, chooseStrategy, applyStrategy } from './ai'
+import { trackWeek, snapshotOf } from './trajectory'
 import { AI_SEEDS, NEW_STATE_COLORS, PERSONA } from './seeds'
 
 export { GameError }
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
 const r2 = (x: number) => Math.round(x * 100) / 100
+/** Last `k` samples of a history (the full series is fetched on demand via `trajectory`). */
+const recent = (h: { t: number[]; series: Record<string, number[]> }, k: number) =>
+  h.t.length <= k ? h : { t: h.t.slice(-k), series: Object.fromEntries(Object.entries(h.series).map(([s, v]) => [s, v.slice(-k)])) }
 const SAVE_VERSION = 3
 
 export class Game {
@@ -213,6 +216,7 @@ export class Game {
     applyStrategy(n)
     n.mods = computeMods(n.policy)
     Object.assign(this.prov[n.capital].policy, PERSONA.capital)
+    n.tracker = snapshotOf(this, n)
     this.ownedDirty = true; this.ctxCache.clear()
     this.pushNews('found', `🧭 ${n.name} is founded on the Strait of Malacca. ${n.leader}: “${n.motto}”`, [n.id])
     this.save()
@@ -272,7 +276,7 @@ export class Game {
       stability: 62, legitimacy: 55, reserve: 0, manpower: 0, manpowerCap: 0, quality: 1, warWeariness: 0,
       wars: [], allies: [], pacts: [], truces: {}, embargoes: [], sanctions: [], tariffs: {}, blockades: [], aidTargets: [], tradeBloc: null,
       protectedUntil: o.ai ? 0 : this.tick + PROTECTION_DAYS, nextElection: null,
-      idx: {}, history: { t: [], series: {} }, gdpMonthly: [],
+      idx: {}, history: { t: [], series: {} }, log: [], gdpMonthly: [],
       ledger: { revenue: {}, spending: {}, net: 0 }, mods: {}, brain: null, issue: null, nextIssue: this.tick + 20,
       gdp: 0, gdpReal: 0, pop: 0, provinces: 0, troops: 0, casualties: 0, sectorOut: new Array(NS).fill(0), sectorJobs: new Array(NS).fill(0),
       exports: new Array(NS).fill(0), imports: new Array(NS).fill(0), aidReceived: 0, tariffRevenue: 0, shortage: 0, projectNational: {},
@@ -313,6 +317,7 @@ export class Game {
     n.stockOff.democracy = acc.voice / 10.5 - (n.idx.democracy ?? 5)
     n.ref = { growth: this.countries[capIso]?.data.gdp_growth ?? 2, homicide: acc.homicide, safety: n.idx.safety ?? 50, co2: acc.co2, gdppc: this.gdppc(n), renewables: acc.renewables }
     nationIndices(this, n)
+    n.tracker = snapshotOf(this, n) // decisions from day one are logged
     return n
   }
 
@@ -339,7 +344,7 @@ export class Game {
       this.tick = d.tick; this.nextId = d.nextId; this.seq = d.seq
       this.prov = d.prov
       this.bias = Float32Array.from(d.bias); this.off = Float32Array.from(d.off)
-      for (const n of d.nations as Nation[]) { n.ref ??= {}; n.stockOff ??= {}; n.projectNational ??= {}; this.nations.set(n.id, n) }
+      for (const n of d.nations as Nation[]) { n.ref ??= {}; n.stockOff ??= {}; n.projectNational ??= {}; n.log ??= []; this.nations.set(n.id, n) }
       Object.assign(this, { battles: d.battles, news: d.news, chat: d.chat, proposals: d.proposals, players: d.players, demandShare: d.demandShare, tradeBlocs: d.tradeBlocs, games: d.games, worldGdppc: d.worldGdppc })
       this.prices.splice(0, NS, ...d.prices)
       this.sell = new Map(d.sell); this.gamesHosted = new Map(d.gamesHosted); this.aggressors = new Map(d.aggressors)
@@ -392,6 +397,7 @@ export class Game {
     }
     for (const n of [...this.nations.values()]) if (n.alive && n.ai && (this.tick + n.id) % 7 === 0) aiWeek(this, n)
     this.diplomacyQueue()
+    if (this.tick % 7 === 0) for (const n of this.nations.values()) if (n.alive) trackWeek(this, n)
     if (this.tick % DAYS_PER_MONTH === 0) this.monthly()
   }
 
@@ -400,10 +406,6 @@ export class Game {
       if (!n.alive) continue
       n.gdpMonthly.push(n.gdpReal || n.gdp)
       if (n.gdpMonthly.length > 25) n.gdpMonthly.shift()
-      const h = n.history
-      h.t.push(this.tick)
-      for (const k of HISTORY_KEYS) (h.series[k] ??= []).push(+(n.idx[k] ?? 0).toPrecision(4))
-      if (h.t.length > 240) { h.t.shift(); for (const k of HISTORY_KEYS) h.series[k]?.shift() }
       politicsMonth(this, n)
       if (!n.ai) this.issueTick(n)
       // long-held provinces become heartland
@@ -819,8 +821,12 @@ export class Game {
       reserve: r2(n.reserve), manpower: r2(n.manpower), manpowerCap: r2(n.manpowerCap), quality: r2(n.quality), warWeariness: r2(n.warWeariness),
       ledger: { revenue: Object.fromEntries(Object.entries(n.ledger.revenue).map(([k, v]) => [k, r2(v)])), spending: Object.fromEntries(Object.entries(n.ledger.spending).map(([k, v]) => [k, r2(v)])), net: r2(n.ledger.net) },
       sectors: { output: n.sectorOut.map(r2), jobs: n.sectorJobs.map(r2), exports: n.exports.map(r2), imports: n.imports.map(r2) },
-      partners, history: n.history, mods: n.mods, nextElection: n.nextElection, ideology: revealedIdeology(n),
+      partners, history: recent(n.history, 120), mods: n.mods, nextElection: n.nextElection, ideology: revealedIdeology(n),
     }
+  }
+  trajectory(id: number): Trajectory | null {
+    const n = this.nations.get(id)
+    return n ? { nation: id, history: n.history, log: n.log ?? [] } : null
   }
   provinceDetail(pid: number): ProvinceDetail {
     const p = this.prov[pid], P = this.P[pid]
@@ -850,7 +856,7 @@ export class Game {
     for (let i = 1; i < ids.length; i++) for (let j = 1; j < ids.length; j++) { const f = flows[i * ids.length + j]; if (f > 0.05) tr.push([ids[i], ids[j], r2(f)]) }
     tr.sort((a, b) => b[2] - a[2])
     return {
-      t: 'state', tick: this.tick, dayMs, market: { prices: this.prices.map(r2), oilShock: this.market.oilShock },
+      t: 'state', speed: 1, canSpeed: false, tick: this.tick, dayMs, market: { prices: this.prices.map(r2), oilShock: this.market.oilShock },
       prov: { owner, pop, garrison, unrest, gdppc, top, dev, build },
       nations: [...this.nations.values()].filter(n => n.alive).map(n => this.publicView(n)),
       tradeBlocs: this.tradeBlocs, trade: tr.slice(0, 160), battles: this.battles, results: this.results, news: this.news.slice(0, 60), games: this.games,
