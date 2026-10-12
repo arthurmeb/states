@@ -1,0 +1,346 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>STATES demo composition</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>html,body{margin:0;background:#000;overflow:hidden}canvas{display:block}</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script>
+// A deterministic motion-graphics timeline: renderAt(t) draws the frame at time t (seconds).
+const W = 1920, H = 1080, FPS = 30
+const cv = document.getElementById('c'), g = cv.getContext('2d')
+const GOLD = '#ffd43b', INK = '#e8ecf3', MUTED = '#8b95a7', BG = '#04070d'
+
+// ───────── assets ─────────
+const img = {}
+const STILLS = ['globe-political', 'globe-night', 'map-wealth', 'map-industry', 'map-blocs', 'map-diplomatic', 'europe-cities', 'home-close', 'found', 'province-view',
+  'gov-overview', 'gov-budget', 'gov-economy', 'gov-foreign', 'gov-indices', 'gov-society', 'gov-territories', 'gov-culture', 'gov-defense', 'gov-world']
+const seq = { spin: [], city: [] }
+function load(src) { return new Promise(r => { const i = new Image(); i.onload = () => r(i); i.onerror = () => r(null); i.src = src }) }
+window.ready = (async () => {
+  await Promise.all(STILLS.map(async n => { img[n] = await load(`assets/${n}.jpg`) }))
+  const pad = i => String(i).padStart(4, '0')
+  seq.spin = await Promise.all(Array.from({ length: 150 }, (_, i) => load(`assets/spin/${pad(i)}.jpg`)))
+  seq.city = await Promise.all(Array.from({ length: 120 }, (_, i) => load(`assets/city/${pad(i)}.jpg`)))
+  await document.fonts.load('900 100px Inter'); await document.fonts.load('600 40px Inter'); await document.fonts.load('700 30px "JetBrains Mono"')
+  await document.fonts.ready
+  return true
+})()
+
+// ───────── easing & helpers ─────────
+const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v))
+const lerp = (a, b, t) => a + (b - a) * t
+const ease = t => { t = clamp(t); return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2 }
+const out = t => { t = clamp(t); return 1 - Math.pow(1 - t, 3) }
+const outBack = t => { t = clamp(t); const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2) }
+const seg = (t, a, b) => clamp((t - a) / (b - a))
+const fadeInOut = (t, a, b, f = 0.5) => Math.min(seg(t, a, a + f), 1 - seg(t, b - f, b))
+
+function cover(im, x, y, w, h, zoom = 1, fx = 0.5, fy = 0.5) {
+  if (!im) return
+  const s = Math.max(w / im.width, h / im.height) * zoom
+  const iw = im.width * s, ih = im.height * s
+  g.drawImage(im, x + (w - iw) * fx, y + (h - ih) * fy, iw, ih)
+}
+function text(str, x, y, { size = 48, weight = 800, color = INK, align = 'left', spacing = 0, alpha = 1, font = 'Inter', base = 'alphabetic', shadow = true } = {}) {
+  g.save()
+  g.globalAlpha *= alpha
+  g.font = `${weight} ${size}px ${font === 'mono' ? '"JetBrains Mono"' : 'Inter'}`
+  g.letterSpacing = `${spacing}px`
+  g.textAlign = align; g.textBaseline = base
+  if (shadow) { g.shadowColor = 'rgba(0,0,0,0.65)'; g.shadowBlur = 24 }
+  g.fillStyle = color
+  g.fillText(str, x, y)
+  g.restore()
+}
+/** words rise in one by one */
+function kinetic(str, x, y, t, opts = {}) {
+  const words = str.split(' ')
+  g.save()
+  g.font = `${opts.weight ?? 800} ${opts.size ?? 64}px Inter`
+  g.letterSpacing = `${opts.spacing ?? 0}px`
+  let cx = opts.align === 'center' ? x - g.measureText(str).width / 2 : x
+  const sp = g.measureText(' ').width
+  words.forEach((w, i) => {
+    const k = out(seg(t, i * (opts.stagger ?? 0.06), i * (opts.stagger ?? 0.06) + 0.45))
+    text(w, cx, y + (1 - k) * 40, { ...opts, align: 'left', alpha: k * (opts.alpha ?? 1) })
+    cx += g.measureText(w).width + sp
+  })
+  g.restore()
+}
+function panel(x, y, w, h, alpha = 1, r = 18) {
+  g.save(); g.globalAlpha *= alpha
+  g.fillStyle = 'rgba(10,14,22,0.82)'; g.strokeStyle = 'rgba(255,255,255,0.12)'; g.lineWidth = 1.5
+  g.beginPath(); g.roundRect(x, y, w, h, r); g.fill(); g.stroke(); g.restore()
+}
+function chip(str, x, y, alpha = 1, color = GOLD) {
+  g.save(); g.font = '600 26px Inter'
+  const w = g.measureText(str).width + 40
+  g.globalAlpha *= alpha
+  g.fillStyle = 'rgba(10,14,22,0.85)'; g.strokeStyle = color; g.lineWidth = 2
+  g.beginPath(); g.roundRect(x, y, w, 52, 26); g.fill(); g.stroke()
+  g.fillStyle = INK; g.textBaseline = 'middle'; g.fillText(str, x + 20, y + 27)
+  g.restore(); return w
+}
+function vignette(a = 0.75) {
+  const gr = g.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.95)
+  gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, `rgba(0,0,0,${a})`)
+  g.fillStyle = gr; g.fillRect(0, 0, W, H)
+}
+function leftShade(w = 1000, a = 0.85) {
+  const gr = g.createLinearGradient(0, 0, w, 0)
+  gr.addColorStop(0, `rgba(3,5,10,${a})`); gr.addColorStop(1, 'rgba(3,5,10,0)')
+  g.fillStyle = gr; g.fillRect(0, 0, w, H)
+}
+function eyebrow(str, x, y, alpha) { text(str, x, y, { size: 24, weight: 800, color: GOLD, spacing: 6, alpha }) }
+function stars(t, alpha = 1) {
+  for (let i = 0; i < 220; i++) {
+    const sx = (i * 9301 + 49297) % W, sy = (i * 233280 + 1237) % H
+    const tw = 0.4 + 0.6 * Math.abs(Math.sin(t * 1.5 + i))
+    g.fillStyle = `rgba(255,255,255,${0.5 * tw * alpha})`
+    g.fillRect(sx, sy + (t * 6 * (i % 3)) % 20, 1.6, 1.6)
+  }
+}
+function counter(from, to, t, fmt = v => Math.round(v).toLocaleString('en-US')) { return fmt(lerp(from, to, out(t))) }
+function card(im, x, y, w, h, alpha = 1, rot = 0, scale = 1) {
+  if (!im) return
+  g.save(); g.globalAlpha *= alpha
+  g.translate(x + w / 2, y + h / 2); g.rotate(rot); g.scale(scale, scale)
+  g.shadowColor = 'rgba(0,0,0,0.7)'; g.shadowBlur = 60; g.shadowOffsetY = 30
+  g.beginPath(); g.roundRect(-w / 2, -h / 2, w, h, 16); g.fillStyle = '#000'; g.fill()
+  g.shadowColor = 'transparent'
+  g.save(); g.beginPath(); g.roundRect(-w / 2, -h / 2, w, h, 16); g.clip(); g.drawImage(im, -w / 2, -h / 2, w, h); g.restore()
+  g.strokeStyle = 'rgba(255,255,255,0.18)'; g.lineWidth = 2; g.beginPath(); g.roundRect(-w / 2, -h / 2, w, h, 16); g.stroke()
+  g.restore()
+}
+
+// ───────── scenes ─────────
+const SCENES = [
+  { a: 0, b: 4.6, draw: intro },
+  { a: 4.2, b: 11.2, draw: globe },
+  { a: 10.8, b: 17.4, draw: data },
+  { a: 17.0, b: 22.8, draw: found },
+  { a: 22.4, b: 31.4, draw: govern },
+  { a: 31.0, b: 38.6, draw: city },
+  { a: 38.2, b: 45.6, draw: power },
+  { a: 45.2, b: 51.0, draw: soft },
+  { a: 50.6, b: 56.6, draw: indices },
+  { a: 56.2, b: 61.6, draw: clock },
+  { a: 61.2, b: 66, draw: endcard },
+]
+window.DURATION = 66
+
+function intro(t) {
+  g.fillStyle = BG; g.fillRect(0, 0, W, H); stars(t)
+  const lw = out(seg(t, 0.2, 1.4)) * 760
+  g.fillStyle = GOLD; g.fillRect(W / 2 - lw / 2, H / 2 + 70, lw, 3)
+  const letters = 'STATES'.split('')
+  const sp = lerp(160, 64, ease(seg(t, 0.3, 2.2)))
+  g.save(); g.font = '900 190px Inter'; g.letterSpacing = `${sp}px`
+  const total = g.measureText('STATES').width
+  g.restore()
+  let x = W / 2 - total / 2 + sp / 2
+  letters.forEach((L, i) => {
+    const k = out(seg(t, 0.3 + i * 0.09, 1.1 + i * 0.09))
+    g.save(); g.font = '900 190px Inter'
+    text(L, x, H / 2 + 30 + (1 - k) * 80, { size: 190, weight: 900, spacing: 0, alpha: k })
+    x += g.measureText(L).width + sp
+    g.restore()
+  })
+  text('GEOPOLITICS IN REAL TIME', W / 2, H / 2 + 140, { size: 30, weight: 600, color: GOLD, align: 'center', spacing: 14, alpha: out(seg(t, 1.6, 2.4)) })
+  text('A living world simulation in your browser', W / 2, H / 2 + 200, { size: 26, weight: 400, color: MUTED, align: 'center', alpha: out(seg(t, 2.2, 3)) })
+}
+
+function globe(t) {
+  const n = seq.spin.length
+  const fi = Math.min(n - 1, Math.floor(seg(t, 0, 7) * n))
+  cover(seq.spin[fi] ?? img['globe-political'], 430, -40, W, H, lerp(1.25, 1.4, seg(t, 0, 7)), 0.5, 0.5)
+  leftShade(1100, 0.95); vignette(0.6)
+  eyebrow('THE WORLD', 140, 300, out(seg(t, 0.4, 1)))
+  text(counter(0, 1915, seg(t, 0.5, 2.2)), 140, 430, { size: 150, weight: 900, alpha: out(seg(t, 0.5, 1)) })
+  kinetic('provinces on real geography', 145, 500, t - 1.1, { size: 46, weight: 600, color: INK })
+  const k2 = out(seg(t, 2.8, 3.4)), k3 = out(seg(t, 3.6, 4.2))
+  text(counter(0, 8.2, seg(t, 2.8, 4), v => v.toFixed(1)) + ' billion people', 145, 610, { size: 52, weight: 800, alpha: k2 })
+  text(counter(0, 3067, seg(t, 3.6, 4.8)) + ' real cities · 197 countries of data', 145, 680, { size: 36, weight: 600, color: MUTED, alpha: k3 })
+  text('Borders are yours to draw.', 145, 790, { size: 40, weight: 800, color: GOLD, alpha: out(seg(t, 4.6, 5.3)) })
+}
+
+const INDICATORS = ['GDP per capita (PPP)', 'Life expectancy', 'Rule of law', 'Control of corruption', 'Voice & accountability', 'Manufacturing share', 'High-tech exports', 'R&D spending', 'Tertiary enrolment', 'Internet users', 'Gini coefficient', 'Military spending', 'Tourist arrivals', 'Oil rents', 'Renewables share', 'PM2.5 pollution', 'Urbanisation', 'Fertility rate', 'Tax revenue', 'Public debt', 'Women in parliament', 'Human Development Index', 'Homicide rate', 'Labour participation']
+function data(t) {
+  g.fillStyle = BG; g.fillRect(0, 0, W, H)
+  g.save(); g.globalAlpha = 0.35; g.filter = 'blur(6px)'; cover(img['map-wealth'], 0, 0, W, H, 1.1 + t * 0.01); g.restore()
+  vignette(0.85)
+  eyebrow('SEEDED FROM REALITY', 140, 230, out(seg(t, 0.3, 0.9)))
+  kinetic('Every nation inherits its land’s real data.', 140, 320, t - 0.4, { size: 64, weight: 900 })
+  const cards = [
+    ['World Bank', 'Development Indicators', '≈55 series'],
+    ['World Bank', 'Governance Indicators', '6 scores'],
+    ['UNDP', 'Human Development', 'HDI · schooling'],
+    ['Natural Earth', 'Populated places', '3,067 cities'],
+  ]
+  cards.forEach(([org, name, n], i) => {
+    const k = outBack(seg(t, 1.2 + i * 0.25, 1.9 + i * 0.25))
+    const x = 140 + i * 420, y = 420 + (1 - k) * 120
+    panel(x, y, 390, 230, clamp(k))
+    text(org.toUpperCase(), x + 30, y + 58, { size: 22, weight: 800, color: GOLD, spacing: 4, alpha: clamp(k), shadow: false })
+    text(name, x + 30, y + 110, { size: 28, weight: 700, alpha: clamp(k), shadow: false })
+    text(n, x + 30, y + 185, { size: 40, weight: 900, alpha: clamp(k), shadow: false })
+  })
+  // marquee of indicators
+  const alpha = out(seg(t, 2.6, 3.2))
+  let x = 140 - ((t - 2.6) * 220) % 2600
+  for (let rep = 0; rep < 2; rep++) for (const s of INDICATORS) { x += chip(s, x, 760, alpha) + 16 }
+  text('≈70 data points per country drive the economy, the people — and the AI’s choices.', 140, 920, { size: 34, weight: 600, color: MUTED, alpha: out(seg(t, 3.4, 4)) })
+}
+
+function found(t) {
+  cover(img.found, 0, 0, W, H, lerp(1.0, 1.08, seg(t, 0, 6)), 0.15, 0.4)
+  g.fillStyle = `rgba(0,0,0,${0.35 * seg(t, 0, 0.8)})`; g.fillRect(0, 0, W, H)
+  const k = out(seg(t, 0.6, 1.3))
+  // highlight the founding panel
+  g.save(); g.strokeStyle = GOLD; g.lineWidth = 5; g.globalAlpha = k
+  g.beginPath(); g.roundRect(16, 70, 760 * 0.5 + 10, 770, 18); g.stroke(); g.restore()
+  panel(900, 260, 880, 470, k)
+  eyebrow('STEP 1', 950, 340, k)
+  kinetic('Found your state anywhere on Earth', 950, 420, t - 0.8, { size: 52, weight: 900 })
+  const lines = ['Gulf oil, Ukrainian farmland, the Strait of Malacca…', 'Inherit real development, institutions & people.', 'Three years of international protection to grow.']
+  lines.forEach((l, i) => text('▲ ' + l, 950, 510 + i * 62, { size: 30, weight: 600, color: i === 0 ? INK : '#c5cbd6', alpha: out(seg(t, 1.6 + i * 0.4, 2.2 + i * 0.4)), shadow: false }))
+}
+
+function govern(t) {
+  g.fillStyle = BG; g.fillRect(0, 0, W, H)
+  g.save(); g.globalAlpha = 0.25; g.filter = 'blur(10px)'; cover(img['gov-overview'], 0, 0, W, H, 1.1); g.restore()
+  vignette(0.9)
+  eyebrow('STEP 2 · THE GOVERNMENT', 140, 140, out(seg(t, 0.2, 0.8)))
+  kinetic('Govern everything.', 140, 225, t - 0.3, { size: 72, weight: 900 })
+  const shots = ['gov-overview', 'gov-budget', 'gov-society', 'gov-economy']
+  const labels = ['Overview · factions · world standing', 'Taxes & a 13-line budget', '≈50 policies with live effects', '17 industries on a development ladder']
+  const per = 2.05
+  shots.forEach((s, i) => {
+    const lt = t - 0.8 - i * per
+    if (lt < -0.6 || lt > per + 0.8) return
+    const enter = out(seg(lt, -0.6, 0.4)), leave = ease(seg(lt, per - 0.2, per + 0.6))
+    const x = lerp(1500, 140, enter) - leave * 1500
+    const sc = 0.56 * lerp(0.92, 1, enter) * lerp(1, 0.9, leave)
+    card(img[s], x, 290, W * sc, H * sc, clamp(enter * (1 - leave * 0.9)), lerp(0.03, 0, enter) - leave * 0.03)
+
+  })
+  // one caption at a time, cross-fading on the beat of the carousel
+  const ci = clamp(Math.floor((t - 0.8 + 0.3) / per), 0, labels.length - 1)
+  const ph = (t - 0.8 + 0.3) - ci * per
+  text(labels[ci], W - 140, 225, { size: 34, weight: 700, color: GOLD, align: 'right', alpha: Math.min(out(seg(ph, 0.1, 0.5)), ci === labels.length - 1 ? 1 : 1 - seg(ph, per - 0.35, per - 0.05)) })
+  const chips = ['8 political factions', 'Elections, coups & revolutions', 'Welfare · rights · governance · environment']
+  let cx = 140
+  chips.forEach((c, i) => { cx += chip(c, cx, 1000, out(seg(t, 2.5 + i * 0.4, 3 + i * 0.4))) + 16 })
+}
+
+function city(t) {
+  const n = seq.city.length
+  const fi = Math.floor(((t * 12) % n + n) % n)
+  const im = seq.city[fi] ?? img['province-view']
+  // the scene area of the province view, zooming from the full overlay into the city
+  const z = lerp(1.0, 1.65, ease(seg(t, 0.4, 3.2)))
+  cover(im, 0, 0, W, H, z, 0.32, 0.62)
+  const k = out(seg(t, 3.0, 3.6))
+  panel(100, 570, 1260, 330, k * 0.95)
+  eyebrow('STEP 3 · DOWN TO THE CITY', 140, 640, k)
+  kinetic('Every province is alive.', 140, 730, t - 3.1, { size: 66, weight: 900 })
+  text('Jobs in 17 industries · schools · hospitals · pollution · unrest · garrisons', 145, 800, { size: 30, weight: 600, color: '#d6dbe4', alpha: out(seg(t, 3.8, 4.4)) })
+  text('Build ports, universities, fabs, stadiums, spaceports — and watch them rise.', 145, 850, { size: 30, weight: 600, color: GOLD, alpha: out(seg(t, 4.4, 5)) })
+}
+
+function power(t) {
+  const mix = ease(seg(t, 3, 4.2))
+  cover(img['globe-night'], 470, -40, W, H, lerp(1.3, 1.42, seg(t, 0, 7)), 0.55, 0.5)
+  if (mix > 0) { g.save(); g.globalAlpha = mix; cover(img['map-blocs'], 470, -40, W, H, 1.35, 0.5, 0.5); g.restore() }
+  leftShade(1000, 0.9); vignette(0.5)
+  eyebrow('POWER POLITICS', 140, 250, out(seg(t, 0.3, 0.9)))
+  kinetic('Bend the world', 140, 330, t - 0.4, { size: 58, weight: 900 })
+  kinetic('without firing a shot.', 140, 395, t - 0.7, { size: 58, weight: 900 })
+  const tools = ['Tariffs', 'Embargoes', 'Sanctions', 'Naval blockades', 'Trade blocs', 'Foreign aid', 'Alliances', 'War']
+  tools.forEach((s, i) => {
+    const k = out(seg(t, 1.2 + i * 0.22, 1.7 + i * 0.22))
+    text(s, 145 + (1 - k) * -60, 490 + i * 60, { size: 44, weight: i === 7 ? 900 : 700, color: i === 7 ? '#ff6b6b' : INK, alpha: k })
+  })
+  text('World markets for 17 sectors · gravity-model trade · influence & dependence', 145, 1000, { size: 26, weight: 600, color: MUTED, alpha: out(seg(t, 3.2, 3.8)) })
+}
+
+function soft(t) {
+  cover(img['gov-culture'], 0, 0, W, H, lerp(1.0, 1.06, seg(t, 0, 6)), 0.5, 0.3)
+  g.fillStyle = `rgba(3,5,10,${0.55 * seg(t, 0, 0.6)})`; g.fillRect(0, 0, W, H)
+  panel(140, 160, 1000, 700, out(seg(t, 0.3, 0.9)))
+  eyebrow('SOFT POWER', 190, 250, out(seg(t, 0.4, 1)))
+  kinetic('Influence through attraction.', 190, 340, t - 0.6, { size: 56, weight: 900 })
+  const pillars = [['🎬', 'Culture & media'], ['🏅', 'Sport & the World Games'], ['🎓', 'Universities & science'], ['🏖', 'Tourism'], ['⚖', 'Values & governance'], ['🏷', 'Global brands'], ['🕊', 'Diplomacy & aid']]
+  pillars.forEach(([ic, l], i) => {
+    const k = outBack(seg(t, 1.3 + i * 0.18, 1.9 + i * 0.18))
+    const col = i % 2, row = Math.floor(i / 2)
+    const x = 190 + col * 470, y = 420 + row * 100
+    text(`${ic}  ${l}`, x, y + (1 - clamp(k)) * 30, { size: 36, weight: 700, alpha: clamp(k), shadow: false })
+  })
+}
+
+const IDX = ['GDP', 'GDP per capita', 'Real growth', 'Inflation', 'Unemployment', 'Public debt', 'Credit rating', 'Economic complexity', 'Competitiveness', 'Innovation', 'Ease of business', 'FDI appeal', 'Food security', 'Energy security', 'HDI', 'Life expectancy', 'Education', 'Health system', 'Infrastructure', 'Internet', 'Gini', 'Happiness', 'Safety', 'Gender equality', 'Social mobility', 'Cohesion', 'Housing', 'Fertility', 'Migration appeal', 'Approval', 'Democracy', 'Freedom', 'Press freedom', 'Corruption', 'Rule of law', 'Gov. effectiveness', 'Stability', 'Fragility', 'Environment', 'CO₂ per capita', 'Renewables', 'Air quality', 'Military strength', 'Naval power', 'Air power', 'National power', 'Global influence', 'Soft power']
+function indices(t) {
+  g.fillStyle = BG; g.fillRect(0, 0, W, H)
+  g.save(); g.globalAlpha = 0.3; g.filter = 'blur(5px)'; cover(img['gov-indices'], 0, 0, W, H, 1.05); g.restore()
+  vignette(0.9)
+  text(counter(0, 65, seg(t, 0.2, 1.4)), 140, 300, { size: 180, weight: 900, color: GOLD, alpha: out(seg(t, 0.2, 0.6)) })
+  kinetic('indices, recomputed every game day', 150, 380, t - 0.6, { size: 48, weight: 800 })
+  IDX.forEach((s, i) => {
+    const col = i % 6, row = Math.floor(i / 6)
+    const k = out(seg(t, 1 + i * 0.035, 1.4 + i * 0.035))
+    text(s, 150 + col * 290, 480 + row * 62, { size: 26, weight: 600, color: i % 7 === 0 ? GOLD : '#c5cbd6', alpha: k * 0.95, shadow: false })
+  })
+  text('Methods modelled on UNDP, WEF, WGI, EIU, Transparency International, Yale EPI and Brand Finance.', 150, 1010, { size: 24, weight: 500, color: MUTED, alpha: out(seg(t, 2.6, 3.2)) })
+}
+
+function clock(t) {
+  cover(img['europe-cities'], 0, 0, W, H, lerp(1.05, 1.15, seg(t, 0, 6)), 0.5, 0.5)
+  g.fillStyle = 'rgba(3,5,10,0.72)'; g.fillRect(0, 0, W, H)
+  const cx = 520, cy = H / 2, r = 230
+  const k = out(seg(t, 0.2, 0.9))
+  g.save(); g.globalAlpha = k
+  g.strokeStyle = 'rgba(255,255,255,0.15)'; g.lineWidth = 10; g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke()
+  const sweep = ease(seg(t, 0.6, 4)) * Math.PI * 2
+  g.strokeStyle = GOLD; g.lineCap = 'round'; g.beginPath(); g.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + sweep); g.stroke()
+  for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; g.fillStyle = '#ffffff55'; g.fillRect(cx + Math.cos(a) * (r - 30) - 3, cy + Math.sin(a) * (r - 30) - 3, 6, 6) }
+  g.restore()
+  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
+  text(months[Math.min(11, Math.floor(ease(seg(t, 0.6, 4)) * 12))] + ' 2031', cx, cy + 20, { size: 64, weight: 900, align: 'center', font: 'mono', alpha: k })
+  text('1 game month = 1 real hour', 900, 420, { size: 60, weight: 900, alpha: out(seg(t, 0.8, 1.4)) })
+  text('Policies take years to bite. The world never pauses.', 900, 490, { size: 34, weight: 600, color: '#c5cbd6', alpha: out(seg(t, 1.4, 2)) })
+  kinetic('Become a superpower —', 900, 640, t - 2.2, { size: 54, weight: 800 })
+  kinetic('or simply a good place to live.', 900, 715, t - 2.7, { size: 54, weight: 800, color: GOLD })
+}
+
+function endcard(t) {
+  g.fillStyle = BG; g.fillRect(0, 0, W, H); stars(t + 40)
+  const k = out(seg(t, 0.2, 1))
+  text('STATES', W / 2, H / 2 - 10, { size: 170, weight: 900, align: 'center', spacing: 60, alpha: k })
+  g.fillStyle = GOLD; g.globalAlpha = k; g.fillRect(W / 2 - 300, H / 2 + 40, 600, 3); g.globalAlpha = 1
+  text('npm run dev  ·  open /guide to learn the ropes', W / 2, H / 2 + 130, { size: 32, weight: 700, align: 'center', font: 'mono', color: GOLD, alpha: out(seg(t, 0.8, 1.5)) })
+  text('Data: World Bank · WGI · UNDP · Natural Earth · Esri · NASA', W / 2, H - 90, { size: 22, weight: 500, align: 'center', color: MUTED, alpha: out(seg(t, 1.2, 1.8)) })
+  g.fillStyle = `rgba(0,0,0,${seg(t, 3.9, 4.8)})`; g.fillRect(0, 0, W, H)
+}
+
+// compositor: overlapping scenes crossfade
+window.renderAt = function (t) {
+  g.save(); g.fillStyle = '#000'; g.fillRect(0, 0, W, H); g.restore()
+  for (const s of SCENES) {
+    if (t < s.a || t > s.b) continue
+    const alpha = fadeInOut(t, s.a, s.b, s === SCENES[0] ? 0.01 : 0.45)
+    g.save(); g.globalAlpha = s === SCENES[SCENES.length - 1] ? Math.min(1, seg(t, s.a, s.a + 0.45)) : alpha
+    s.draw(t - s.a)
+    g.restore()
+  }
+}
+// live preview when opened directly
+if (!navigator.webdriver) window.ready.then(() => { const t0 = performance.now(); const loop = () => { renderAt(((performance.now() - t0) / 1000) % window.DURATION); requestAnimationFrame(loop) }; loop() })
+</script>
+</body>
+</html>
