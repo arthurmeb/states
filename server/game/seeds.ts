@@ -38,3 +38,18 @@ export const AI_SEEDS: [string, string, number, number, number, string][] = [
 
 /** Names for nations that emerge during play (secessions, new states). */
 export const NEW_STATE_COLORS = ['#ff8787', '#da77f2', '#748ffc', '#3bc9db', '#69db7c', '#ffd43b', '#ffa94d', '#a9e34b', '#63e6be', '#e599f7', '#91a7ff', '#ffc078']
+
+/**
+ * Claude's own rival nation: a small, rich trade hub on the Malacca Strait.
+ * Run by the regular AI, but with a fixed finance strategy, a dovish, outward-looking ideology
+ * and an opening play (SEZ capital, low corporate tax, education + R&D, naval deterrence).
+ */
+export const PERSONA = {
+  id: 'claude', name: 'Straits Republic', leader: 'Premier Claude', motto: 'Everyone needs the strait. Nobody fights for it.',
+  lat: 1.35, lon: 103.82, size: 3, color: '#d97757', strategy: 'finance',
+  ideology: { left: 0.35, right: 0.6, auth: 0.25, lib: 0.6, trad: 0.2, prog: 0.55, nat: 0.05, glob: 0.95, green: 0.45, hawk: 0.1 },
+  aggression: 0.04, ambition: 0.45,
+  policy: { economicSystem: 'free', centralBank: 'independent', fdiPolicy: 'incentives', capitalControls: 'open', corporateTax: 12, tariff: 0 } as Record<string, string | number>,
+  budget: { education: 5.5, rnd: 2.6, health: 4.5, infrastructure: 3.5, defense: 2.8, culture: 0.6, sports: 0.35, diplomacy: 0.7 } as Record<string, number>,
+  capital: { sez: 'on', focus: 'services' } as Record<string, string>,
+}

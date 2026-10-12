@@ -168,7 +168,7 @@ export function aiWeek(g: Game, n: Nation) {
   if (g.tick >= B.nextReview) {
     B.nextReview = g.tick + 360
     const sc = strategyScores(g, n)
-    const s = chooseStrategy(g, n)
+    const s = B.locked ?? chooseStrategy(g, n)
     if (s !== B.strategy && sc[s] > (sc[B.strategy] ?? 0) * 1.3 + 0.1) { B.strategy = s; applyStrategy(n); g.pushNews('event', `${n.name} adopts a new national strategy: ${s === 'knowledge' ? 'the knowledge economy' : s}.`, [n.id]) }
   }
   for (const k of Object.keys(B.grievances)) { B.grievances[+k] *= 0.97; if (B.grievances[+k] < 1) delete B.grievances[+k] }

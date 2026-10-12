@@ -42,6 +42,9 @@ export interface AIBrain {
   strategy: string
   nextReview: number
   grievances: Record<number, number>
+  /** Hand-written rival: strategy never changes. */
+  locked?: string
+  persona?: string
 }
 
 export interface Nation {

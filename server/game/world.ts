@@ -18,7 +18,7 @@ import { tradeWeek, influenceOf } from './trade'
 import { GameError, launchAttack, resolveBattles } from './military'
 import { ISSUES, worldMonth } from './events'
 import { setupAINation, aiWeek, aiAccepts, attitude, revealedIdeology, chooseStrategy, applyStrategy } from './ai'
-import { AI_SEEDS, NEW_STATE_COLORS } from './seeds'
+import { AI_SEEDS, NEW_STATE_COLORS, PERSONA } from './seeds'
 
 export { GameError }
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
@@ -70,6 +70,7 @@ export class Game {
     this.fit = new Float32Array(n * NS); this.bias = new Float32Array(n * NS).fill(1); this.off = new Float32Array(n * NOFF)
     for (let i = 0; i < n; i++) for (let s = 0; s < NS; s++) this.fit[i * NS + s] = staticFit(this.P[i], s)
     if (!this.load()) this.newWorld()
+    this.ensurePersona()
   }
 
   // ───────────────────────── helpers ─────────────────────────
@@ -199,6 +200,24 @@ export class Game {
     console.log(`[states] world ready: ${this.P.length} provinces, ${this.nations.size} AI nations, world GDP $${(wgdp * 12 / 1000).toFixed(1)}T`)
   }
 
+  /** Spawn Claude's rival nation once per world (also into existing saves). */
+  private ensurePersona() {
+    if ([...this.nations.values()].some(n => n.brain?.persona === PERSONA.id)) return
+    const cap = this.nearestFree(PERSONA.lat, PERSONA.lon)
+    if (cap < 0) return
+    const n = this.createNation({ name: PERSONA.name, leader: PERSONA.leader, color: PERSONA.color, motto: PERSONA.motto, ai: true, token: null }, this.growRegion(cap, PERSONA.size))
+    const B = n.brain!
+    Object.assign(B, { persona: PERSONA.id, locked: PERSONA.strategy, strategy: PERSONA.strategy, aggression: PERSONA.aggression, ambition: PERSONA.ambition, ideology: { ...PERSONA.ideology } })
+    Object.assign(n.policy, PERSONA.policy)
+    for (const [k, v] of Object.entries(PERSONA.budget)) n.budget[k as keyof typeof n.budget] = v
+    applyStrategy(n)
+    n.mods = computeMods(n.policy)
+    Object.assign(this.prov[n.capital].policy, PERSONA.capital)
+    this.ownedDirty = true; this.ctxCache.clear()
+    this.pushNews('found', `🧭 ${n.name} is founded on the Strait of Malacca. ${n.leader}: “${n.motto}”`, [n.id])
+    this.save()
+  }
+
   private nearestFree(lat: number, lon: number) {
     let best = -1, bd = Infinity
     for (const p of this.P) {
@@ -268,7 +287,7 @@ export class Game {
     if (o.ai) setupAINation(this, n, b0)
     n.mods = computeMods(n.policy)
     aggregate(this, n)
-    if (n.brain) { n.brain.strategy = chooseStrategy(this, n); applyStrategy(n); n.mods = computeMods(n.policy) }
+    if (n.brain) { n.brain.strategy = n.brain.locked ?? chooseStrategy(this, n); applyStrategy(n); n.mods = computeMods(n.policy) }
     const annual = n.gdp * 12
     n.treasury = o.ai ? -(acc.debt / 100) * annual : n.gdp * 3
     n.reserve = o.ai ? clamp(troops || pop * 0.003, pop * 0.0005, pop * 0.02) : Math.max(5, pop * 0.0015)
