@@ -52,14 +52,17 @@ export interface Ctx {
 }
 
 /** Catch-up growth potential: poorer economies with decent institutions grow faster. */
-const convergence = (gdppc: number, inst: number) => 1.6 * clamp(1 - gdppc / 60000, 0, 1) * clamp(inst / 60, 0.2, 1.2)
+/** Catch-up potential relative to the technology frontier (the richest large economies of the day). */
+export let FRONTIER = 60000
+export const setFrontier = (v: number) => { FRONTIER = Math.max(20000, v) }
+const convergence = (gdppc: number, inst: number) => 2.4 * Math.pow(clamp(1 - gdppc / FRONTIER, 0, 1), 1.6) * clamp(inst / 60, 0.2, 1.2)
 
 export function statelessCtx(b: Baseline): Ctx {
   return {
     nation: null, gdppc: b.gdppc, tech: b.tech, inst: b.inst, corruption: b.corruption, freedom: b.voice, mods: {},
     spend: { infra: 2.5, edu: b.eduSpend, health: b.healthSpend * 0.6, security: 1.3, env: 0.3 }, prioNorm: 1,
     subsidies: new Set(), subsidyPct: 0, fertility: b.fertility, migration: 0, natU: b.unemployment, energyPollution: 1, inflation: b.inflation,
-    tfpGrowth: 0.8 + convergence(b.gdppc, b.inst), laborRatio: 1, popGrowth: b.popGrowth / 100, cycle: 1, adapt: 0, creditGap: 0, healthLoad: 1, urbanization: 0, autoRel: 0, refLabor: 0, refProd: 0,
+    tfpGrowth: 0.45 + convergence(b.gdppc, b.inst), laborRatio: 1, popGrowth: b.popGrowth / 100, cycle: 1, adapt: 0, creditGap: 0, healthLoad: 1, urbanization: 0, autoRel: 0, refLabor: 0, refProd: 0,
   }
 }
 
@@ -68,10 +71,10 @@ export function tfpDrivers(g: Game, n: Nation): [string, number][] {
   const mods = n.mods, c = n.cond
   const ar = autoRel(g)
   const drv: [string, number][] = [
-    ['Technology frontier', 0.8],
+    ['Technology frontier', 0.45],
     ['Catch-up potential', convergence(g.gdppc(n), n.stocks.inst)],
     ['Policies', M(mods, 'growth')],
-    ['Foreign investment', M(mods, 'fdi') * 0.6],
+    ['Foreign investment', M(mods, 'fdi') * 0.3],
     ['Automation & AI', ar * (n.stocks.hc / 100) * 0.7 - ar * 0.25],
     ['Climate damage', -c.heat * 0.6 * (1 - clamp(M(mods, 'adapt'), 0, 0.9))],
     ['War', -0.6 * n.wars.length],
@@ -359,7 +362,7 @@ export function provinceEconomy(g: Game, pid: number, ctx: Ctx, dt: number) {
     for (let s = 0; s < NS; s++) {
       const want = t[s] * E
       mismatch += Math.abs(want - p.jobs[s])
-      const rate = 0.02 + (ctx.subsidies.has(s) ? 0.015 * ctx.subsidyPct : 0)
+      const rate = 0.01 + (ctx.subsidies.has(s) ? 0.008 * ctx.subsidyPct : 0)
       p.jobs[s] = Math.max(0, p.jobs[s] + (want - p.jobs[s]) * rate * dt)
     }
     const uT = clamp(ctx.natU + Math.min(0.04, (mismatch / Math.max(1, E)) * 0.04) + p.unrest / 1500, 0.01, 0.45)

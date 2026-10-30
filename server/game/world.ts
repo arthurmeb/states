@@ -9,7 +9,7 @@ import { claimCost, DAYS_PER_MONTH, PROTECTION_DAYS, TRUCE_DAYS, DEMOCRATIC, dat
 import { loadWorldData, baselineOf, type Baseline } from './data'
 import type { Nation, Prov } from './model'
 import { computeMods, defaultBudget, defaultPolicy, M } from './mods'
-import { staticFit, initProvinces, provinceEconomy, statelessCtx, nationCtx, NOFF, type Ctx } from './economy'
+import { setFrontier, staticFit, initProvinces, provinceEconomy, statelessCtx, nationCtx, NOFF, type Ctx } from './economy'
 import { aggregate, nationDay, calibrateNation } from './nation'
 import { politicsDay, unrestDay, blocWeights } from './politics'
 import { computeCond } from './conditions'
@@ -19,6 +19,8 @@ import { initTrends, trendsMonth, TRENDS_START, type Trends } from './trends'
 import { initPower, powerWeek, powerMonth, costCtx, spendPC, partyName } from './power'
 import { computeRisks } from './risks'
 import { newComms, syncBlocRooms, type Comms } from './comms'
+import { newDeals, dealsMonth, justCause, type DealStore } from './deals'
+import type { RoomMsg } from '../../shared/types'
 import type { Account } from './accounts'
 import { policyYears } from './mods'
 import { DEFAULT_COND } from '../../shared/conditions'
@@ -58,6 +60,9 @@ export class Game {
   news: News[] = []
   chat: ChatMsg[] = []
   comms: Comms = newComms()
+  deals: DealStore = newDeals()
+  /** deal messages posted this tick (delivered by the server loop) */
+  dealMsgs: RoomMsg[] = []
   proposals: Proposal[] = []
   players: Record<string, number | null> = {}
   accounts: Record<string, Account> = {}
@@ -214,9 +219,17 @@ export class Game {
     this.ownedDirty = true
     this.ctxCache.clear()
     for (let i = 0; i < 6; i++) { this.dailyEconomy(0); tradeWeek(this) }
+    this.updateFrontier()
     this.trends = initTrends(this)
     this.pushNews('event', `The world map is drawn on ${dateOf(0)}. ${this.nations.size} powers watch the unclaimed lands.`)
     console.log(`[states] world ready: ${this.P.length} provinces, ${this.nations.size} AI nations, world GDP $${(wgdp * 12 / 1000).toFixed(1)}T`)
+  }
+
+  /** The technology frontier: a little above the richest large economies (so they grow at the frontier rate). */
+  updateFrontier() {
+    const rich = [...this.nations.values()].filter(n => n.alive && n.pop > 15000).map(n => this.gdppc(n)).sort((a, b) => b - a)
+    if (rich.length) setFrontier(rich[Math.min(2, rich.length - 1)] * 1.15)
+    this.stateless.clear()
   }
 
   /** Admin: wipe the world and start again from day one. Accounts and player keys survive (with no nation). */
@@ -224,7 +237,7 @@ export class Game {
     for (const k of Object.keys(this.players)) this.players[k] = null
     this.nations.clear()
     Object.assign(this, {
-      tick: 0, nextId: 1, seq: 1, battles: [], results: [], news: [], chat: [], comms: newComms(), proposals: [], tradeBlocs: [], worldGdppc: 15000, avgTradablePrice: 1,
+      tick: 0, nextId: 1, seq: 1, battles: [], results: [], news: [], chat: [], comms: newComms(), deals: newDeals(), proposals: [], tradeBlocs: [], worldGdppc: 15000, avgTradablePrice: 1,
       games: { edition: 1, nextTick: 48 * DAYS_PER_MONTH, host: null, hostCity: null, bidsOpen: false, bids: [], lastHost: null, lastMedals: [] },
     })
     this.prices.fill(1); this.sell.clear(); this.gamesHosted.clear(); this.aggressors.clear(); this.influence.clear(); this.aid.clear()
@@ -392,7 +405,7 @@ export class Game {
       prov: this.prov.map(p => ({ ...p, jobs: p.jobs.map(r2), output: p.output.map(x => +x.toPrecision(4)) })),
       bias: Array.from(this.bias, r2), off: Array.from(this.off, r2),
       nations: [...this.nations.values()], battles: this.battles, news: this.news, chat: this.chat, proposals: this.proposals,
-      players: this.players, accounts: this.accounts, comms: this.comms, prices: this.prices, demandShare: this.demandShare, sell: [...this.sell], tradeBlocs: this.tradeBlocs,
+      players: this.players, accounts: this.accounts, comms: this.comms, deals: this.deals, prices: this.prices, demandShare: this.demandShare, sell: [...this.sell], tradeBlocs: this.tradeBlocs,
       games: this.games, gamesHosted: [...this.gamesHosted], aggressors: [...this.aggressors], worldGdppc: this.worldGdppc, trends: this.trends,
     }
     writeFileSync(this.savePath + '.tmp', JSON.stringify(data))
@@ -421,8 +434,10 @@ export class Game {
       this.trends = d.trends ?? initTrends(this)
       this.accounts = d.accounts ?? {}
       this.comms = d.comms ?? newComms()
+      this.deals = d.deals ?? newDeals()
       for (const p of this.prov) p.res ??= { oil: 1, metals: 1 }
       for (const n of this.nations.values()) this.migrate(n)
+      this.updateFrontier()
       tradeWeek(this)
       console.log(`[states] loaded world at ${dateOf(this.tick)} with ${this.nations.size} nations`)
       return true
@@ -471,6 +486,7 @@ export class Game {
       let wg = 0, wp = 0
       for (const p of this.prov) { wg += p.gdp; wp += p.pop }
       this.worldGdppc = (wg * 12e6) / wp
+      this.updateFrontier()
       const oilShock = new Set<string>()
       for (const P of this.P) if (P.strait && this.prov[P.id].owner >= 0 && this.nations.get(this.prov[P.id].owner)!.wars.length) oilShock.add(P.strait)
       this.market.oilShock = [...oilShock]
@@ -502,6 +518,7 @@ export class Game {
       for (const pid of this.owned(n.id)) { const p = this.prov[pid]; if (p.core !== n.id && this.tick - (p.since ?? 0) > 360 * 15 && p.unrest < 30) p.core = n.id }
     }
     trendsMonth(this)
+    dealsMonth(this)
     worldMonth(this)
     this.spawnNewStates()
     this.save()
@@ -773,7 +790,8 @@ export class Game {
       if (a.allies.includes(b.id)) throw new GameError(`${b.name} is your ally. Break the alliance first.`)
       if ((a.truces[b.id] ?? 0) > this.tick) throw new GameError(`A truce with ${b.name} holds until ${dateOf(a.truces[b.id], false)}.`)
       if (b.protectedUntil > this.tick) throw new GameError(`${b.name} is under international protection until ${dateOf(b.protectedUntil, false)}.`)
-      this.aggressors.set(a.id, this.tick)
+      // breaking a treaty gives the victim a just cause: no aggressor stigma
+      if (!justCause(this, a.id, b.id)) this.aggressors.set(a.id, this.tick)
     }
     a.protectedUntil = 0
     a.wars.push(b.id); b.wars.push(a.id)
