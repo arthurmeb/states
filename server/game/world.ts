@@ -304,8 +304,8 @@ export class Game {
     this.ownedDirty = true
     this.ctxCache.delete(id)
     if (o.ai) setupAINation(this, n, b0)
-    n.power = initPower(this, n)
     aggregate(this, n)
+    n.power = initPower(this, n)
     n.cond = computeCond(this, n)
     n.mods = computeMods(n, this.tick)
     if (n.brain) { n.brain.strategy = n.brain.locked ?? chooseStrategy(this, n); applyStrategy(n); n.mods = computeMods(n, this.tick) }

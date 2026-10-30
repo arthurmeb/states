@@ -169,6 +169,13 @@ export function attitude(g: Game, a: Nation, b: Nation): number {
   if (g.aggressorRecently(b.id) && DEMOCRATIC.has(String(a.policy.government))) v -= 20
   v -= a.brain?.grievances[b.id] ?? 0
   if (g.neighboursOf(a.id).includes(b.id) && (b.idx.power ?? 0) > (a.idx.power ?? 0) * 1.5) v -= 10
+  // new nuclear powers alarm democracies and neighbours; established arsenals are tolerated
+  const bomb = b.mods.deterrence ?? 0
+  if (bomb > 0.25 && b.policy.nuclear !== 'none') v -= (DEMOCRATIC.has(String(a.policy.government)) ? 12 : 4) * (b.since?.nuclear != null && g.tick - b.since.nuclear < 360 * 10 ? 1.8 : 1) * bomb
+  // climate grievances: green nations resent big polluters, hard-hit nations resent everyone who pollutes
+  const green = a.brain?.ideology.green ?? revealedIdeology(a).green
+  const pollute = Math.max(0, (b.idx.co2 ?? 4) - 6)
+  v -= pollute * (green * 1.5 + (a.cond?.heat ?? 0) * 3)
   return clamp(v, -100, 100)
 }
 
@@ -388,7 +395,9 @@ function war(g: Game, n: Nation) {
   if (n.stability < 45 || Math.random() > 0.012 * B.aggression * (0.5 + B.ambition)) return
   const prey = g.neighboursOf(n.id).map(id => g.nation(id)!).filter(o => {
     if (!o || n.allies.includes(o.id) || o.protectedUntil > g.tick || (n.truces[o.id] ?? 0) > g.tick) return false
-    const theirSide = (o.idx.power ?? 0) + o.allies.reduce((s, a) => s + (g.nation(a)?.idx.power ?? 0) * 0.5, 0)
+    // nobody invades a nuclear power lightly
+    if ((o.mods.deterrence ?? 0) > 0.6 && Math.random() < 0.95) return false
+    const theirSide = ((o.idx.power ?? 0) + o.allies.reduce((s, a) => s + (g.nation(a)?.idx.power ?? 0) * 0.5, 0)) * (1 + (o.mods.deterrence ?? 0) * 2)
     const dep = (g.flowBetween(n.id, o.id) + g.flowBetween(o.id, n.id)) / Math.max(0.01, n.gdp)
     return (n.idx.power ?? 0) > theirSide * 1.5 && dep < 0.1 && attitude(g, n, o) < -10
   })

@@ -31,8 +31,27 @@ export function closestParty(ide: Record<string, number>) {
   return best.id
 }
 
+/** The party an electorate would most likely put in power: its natural vote, tilted by the nation's ideology. */
+function naturalGovernment(g: Game, n: Nation) {
+  const w = blocWeights(g, n, true)
+  const ide = n.brain?.ideology ?? {}
+  let best = 'liberal', bs = -Infinity
+  for (const p of PARTIES) {
+    let base = 0
+    for (const b of BLOCS) {
+      const tot = PARTIES.reduce((s, q) => s + (q.blocs[b.id] ?? 0) ** 2, 0) + 0.7
+      base += (w[b.id] ?? 0) * ((p.blocs[b.id] ?? 0) ** 2) / tot
+    }
+    let s = 0, na = 0, nb = 0
+    for (const k of Object.keys(p.ideology) as (keyof typeof p.ideology)[]) { s += ((ide as Record<string, number>)[k] ?? 0) * p.ideology[k]; na += ((ide as Record<string, number>)[k] ?? 0) ** 2; nb += p.ideology[k] ** 2 }
+    const score = base * (1 + (na ? s / Math.sqrt(na * nb) : 0))
+    if (score > bs) { bs = score; best = p.id }
+  }
+  return best
+}
+
 export function initPower(g: Game, n: Nation, party?: string): Power {
-  const id = party && PARTY_MAP[party] ? party : n.brain ? closestParty(n.brain.ideology) : 'liberal'
+  const id = party && PARTY_MAP[party] ? party : n.brain ? naturalGovernment(g, n) : 'liberal'
   return {
     pc: 60, office: 'governing', party: id, partyName: PARTY_MAP[id].name, govParty: id, coalition: [], votes: {}, seats: {},
     lastElection: g.tick, terms: 0, honeymoonUntil: g.tick + 360, campaign: {}, coupRisk: 0, revoRisk: 0, coupShield: 0, history: [], since: g.tick,
@@ -48,23 +67,38 @@ export function poll(g: Game, n: Nation, noise = 0) {
   const econ = clamp(((I.growth ?? 2) - 2) * 0.07 - ((I.inflation ?? 3) - 3) * 0.05 - ((I.unemployment ?? 6) - 6) * 0.05, -0.7, 0.7)
   const yrs = (g.tick - P.since) / 360
   const limit = String(n.policy.termLimits)
-  let fatigue = -Math.min(0.45, 0.05 * Math.max(0, yrs - 4))
+  // voters tire of governments: 'time for a change' grows with years in office and terms won
+  let fatigue = -Math.min(0.7, 0.07 * Math.max(0, yrs - 3)) - 0.08 * Math.max(0, P.terms - 1)
   if (limit === 'two' && P.terms >= 2) fatigue = fatigue / 2 - 0.15
   const honey = g.tick < P.honeymoonUntil ? 0.25 : 0
   const scandal = String(n.policy.press) === 'free' ? -Math.max(0, n.stocks.corruption - 50) * 0.008 : 0
   const gov = P.govParty
-  const govAff = PARTY_MAP[gov]?.blocs ?? { military: 1 }
   const votes: Record<string, number> = Object.fromEntries(PARTIES.map(p => [p.id, 0]))
   if (gov === 'junta') votes.junta = 0
+  // the strongest opposition party draws extra defectors (voters rally to the likeliest winner)
+  const challenger = Object.entries(P.votes).filter(([k]) => k !== gov && !P.coalition.includes(k)).sort((a, b) => b[1] - a[1])[0]?.[0]
+  const SWING = 0.7
   for (const b of BLOCS) {
     const a = n.blocs[b.id] ?? 50, wb = w[b.id] ?? 0
-    const aff = govAff[b.id] ?? 0
-    const retain = sig((a - 55) / 10 + econ + fatigue + honey + scandal + 0.5 * (aff - 0.4) + (P.campaign[gov]?.[b.id] ?? 0) + (noise ? (Math.random() - 0.5) * noise : 0))
-    votes[gov] += wb * retain
-    const others = PARTIES.filter(p => p.id !== gov)
-    let tot = 0
-    const pull = others.map(p => { const x = ((p.blocs[b.id] ?? 0) + (P.campaign[p.id]?.[b.id] ?? 0) + 0.06) ** 2 * (p.id === P.party && P.office !== 'governing' ? 1.15 : 1); tot += x; return x })
-    others.forEach((p, i) => { votes[p.id] += wb * (1 - retain) * (pull[i] / tot) })
+    // partisans: each faction splits into loyal supporters of the parties that represent it, plus swing voters
+    const loyal = PARTIES.map(p => ((p.blocs[b.id] ?? 0) + (P.campaign[p.id]?.[b.id] ?? 0) * 0.5) ** 2)
+    const tot = loyal.reduce((s, x) => s + x, 0) + SWING
+    const jitter = noise ? (Math.random() - 0.5) * noise : 0
+    const mood = (a - 62) / 10 + econ + fatigue + honey + scandal + (P.campaign[gov]?.[b.id] ?? 0) + jitter
+    // the government's own partisans mostly stay; swing voters judge its record
+    const keepLoyal = sig(mood + 1.6), keepSwing = sig(mood)
+    let defectors = 0
+    PARTIES.forEach((p, i) => {
+      const share = (loyal[i] / tot) * wb
+      if (p.id === gov) { votes[gov] += share * keepLoyal; defectors += share * (1 - keepLoyal) } else votes[p.id] += share
+    })
+    if (gov === 'junta') votes.junta += (SWING / tot) * wb * keepSwing
+    else votes[gov] += (SWING / tot) * wb * keepSwing
+    defectors += (SWING / tot) * wb * (1 - keepSwing)
+    // defectors go to the opposition parties that speak to this faction
+    const pull = PARTIES.map(p => (p.id === gov ? 0 : ((p.blocs[b.id] ?? 0) + (P.campaign[p.id]?.[b.id] ?? 0) + 0.12) ** 2 * (p.id === challenger ? 1.4 : 1) * (p.id === P.party && P.office !== 'governing' ? 1.15 : 1)))
+    const ptot = pull.reduce((s, x) => s + x, 0) || 1
+    PARTIES.forEach((p, i) => { votes[p.id] += defectors * (pull[i] / ptot) })
   }
   const sum = Object.values(votes).reduce((a, x) => a + x, 0) || 1
   for (const k of Object.keys(votes)) votes[k] = (votes[k] / sum) * 100

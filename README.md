@@ -35,10 +35,28 @@ proprietary or discontinued, so their *methodologies* are reproduced from the op
 Taiwan isn't covered by the World Bank, so it uses public estimates (marked "est." in-game). Missing values are imputed
 from the median of countries in the same region and income group.
 
+## How the simulation thinks (v3)
+- **Every effect is situational.** Each policy has headline effects, *situational* effects that read the nation's
+  condition vector (`shared/conditions.ts`: development, age structure, debt, credit gap, resource dependence, openness,
+  inequality, cohesion, climate stress, automation, the energy transition…) and effects that change with the
+  years it has been in force. Repealing entitlements causes a backlash (`onLeave`). See `shared/policies.ts`.
+- **Long-term forces.** Population by age (`demography.ts`) drives labour supply, pensions and health costs;
+  a private credit cycle (`finance.ts`) builds booms that end in banking crises; currency pegs can break; fiscal rules
+  buy credibility. World trends (`trends.ts`): emissions heat the planet, clean tech spreads and cuts oil demand,
+  automation reshapes which development paths work; oil and minerals deplete.
+- **Power.** Political capital pays for every change (`shared/power.ts`, `power.ts`). Six parties compete for the
+  factions' votes; elections produce seats and coalitions; players who lose go into opposition while a rival party
+  governs. Autocrats face coups and revolutions instead.
+- **Causality you can see.** Drivers (`n.drivers`) decompose growth, inflation, unemployment, credit, stability,
+  legitimacy, approval by faction, political capital, corruption, institutions, fertility and coup risk. The risk radar
+  (`risks.ts`) ranks pressures building up. Situational crises (`events.ts`) fire when conditions call for them.
+- Balancing tools: `npx jiti scripts/sim.ts 20` runs a headless world for 20 years; `scripts/debug-*.ts` inspect one
+  nation's finances, growth by sector and the oil market; `scripts/test-power.ts` plays an election defeat and comeback.
+
 ## Architecture
 - `scripts/`: data fetch and world build. The world is 1,915 H3 hex provinces over real land, each mapped to its real country.
 - `shared/`: data-driven catalogs: 17 industries (`sectors.ts`), ~50 policies plus budget and provincial policy (`policies.ts`), 24 projects (`projects.ts`), 65 indices (`indices.ts`).
-- `server/game/`: the authoritative simulation (one tick = one game day):
+- `server/game/`: the authoritative simulation (one tick = one game day). Besides the modules below: `conditions.ts`, `demography.ts`, `finance.ts`, `trends.ts`, `power.ts`, `risks.ts`, `trajectory.ts`.
   - `economy.ts`: per-province employment across 17 sectors, productivity, local services, people. Calibrated so 2030 matches real data, then driven by policy.
   - `nation.ts`: revenue (income, payroll, corporate, VAT, tariffs, resource rents), budget, debt, credit rating, inflation, defaults, slow national capital (tech, institutions, corruption, culture, brands, military).
   - `trade.ts`: weekly world markets per sector, gravity-model bilateral trade balanced with RAS, tariffs, embargoes, sanctions, blockades, trade blocs, aid, and the influence matrix.
