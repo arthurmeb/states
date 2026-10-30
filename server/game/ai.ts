@@ -5,7 +5,9 @@ import { claimCost, TERRAIN, DEMOCRATIC } from '../../shared/rules'
 import type { Game } from './world'
 import type { Nation } from './model'
 import type { Baseline } from './data'
-import { scoreMods, optionMods, ideologyScore } from './mods'
+import { scoreMods, optionMods, ideologyScore, policyYears } from './mods'
+import { PARTY_MAP } from '../../shared/power'
+import type { Mods } from '../../shared/policies'
 import { influenceOf } from './trade'
 import { GameError, launchAttack, defensePower } from './military'
 
@@ -49,7 +51,9 @@ export function aiGovernment(b: Baseline, iso3: string, region: string): string 
   if (b.voice >= 62) return ['GBR', 'JPN', 'NLD', 'SWE', 'NOR', 'DNK', 'ESP', 'BEL', 'THA', 'CAN', 'AUS'].includes(iso3) ? 'monarchy' : 'democracy'
   if (b.voice >= 42) return 'democracy'
   if (['IRN', 'AFG'].includes(iso3)) return 'theocracy'
-  if (['SAU', 'ARE', 'QAT', 'KWT', 'OMN', 'BHR', 'JOR', 'MAR'].includes(iso3)) return 'monarchy'
+  // absolute monarchies rule without elections
+  if (['SAU', 'ARE', 'QAT', 'KWT', 'OMN', 'BHR'].includes(iso3)) return 'oneparty'
+  if (['JOR', 'MAR'].includes(iso3)) return 'monarchy'
   if (b.milSpend > 3.5 || ['MMR', 'SDN', 'MLI', 'BFA', 'NER', 'TCD', 'GIN', 'EGY'].includes(iso3)) return 'junta'
   if (region.includes('Middle East') && b.voice < 20) return 'theocracy'
   return 'oneparty'
@@ -59,17 +63,33 @@ export function setupAINation(g: Game, n: Nation, b: Baseline) {
   const ide = ideologyFromData(b)
   const gov = aiGovernment(b, n.iso3, g.countries[n.iso3]?.region ?? '')
   n.brain = { ideology: ide, aggression: clamp(0.1 + ide.hawk * 0.45 + ide.auth * 0.3 + Math.random() * 0.2, 0, 1), ambition: clamp(0.2 + Math.random() * 0.5 + (b.gdppc > 30000 ? 0.2 : 0), 0, 1), strategy: 'welfare', nextReview: 0, grievances: {} }
-  // policies that best fit this ideology
+  // policies that best fit this ideology, judged by their full effects in this country's situation
+  // (a strong status-quo bias: most countries keep most institutions as they are)
+  const SET_BY_HISTORY = new Set(['nuclear', 'currency', 'fiscalRule', 'electoralSystem', 'termLimits', 'swf', 'fuelSubsidy', 'priceControls', 'pensionSystem', 'adaptation'])
   for (const p of POLICIES) {
-    if (p.kind !== 'choice') continue
-    let best = p.default, bs = 0.3 // status-quo bias
+    if (p.kind !== 'choice' || SET_BY_HISTORY.has(p.id)) continue
+    const bias = p.isNew ? 1.4 : 0.6
+    let best = p.default, bs = scoreMods(seen(n, p, p.default, 0), ide) + bias
     for (const o of p.options) {
-      const s = scoreMods(o.mods, ide) + (o.id === p.default ? 0.3 : 0)
+      if (o.id === p.default) continue
+      const s = scoreMods(seen(n, p, o.id, 0), ide)
       if (s > bs) { bs = s; best = o.id }
     }
     n.policy[p.id] = best
   }
+  // institutions that come from each country's history
+  const iso = n.iso3
+  n.policy.nuclear = ['USA', 'RUS', 'CHN', 'IND', 'PAK', 'FRA', 'GBR', 'ISR', 'PRK'].includes(iso) ? 'arsenal' : ['IRN', 'JPN', 'KOR', 'SAU'].includes(iso) ? 'threshold' : 'none'
+  n.policy.currency = ['SAU', 'ARE', 'QAT', 'KWT', 'OMN', 'BHR', 'JOR', 'DNK', 'HKG', 'BGR', 'PAN', 'ECU', 'SLV'].includes(iso) ? 'peg' : ['CHN', 'VNM', 'SGP', 'IND', 'EGY', 'NGA', 'ARG'].includes(iso) ? 'managed' : 'float'
+  n.policy.fiscalRule = ['DEU', 'CHE', 'SWE', 'NLD', 'DNK', 'NOR', 'POL', 'CHL'].includes(iso) ? 'brake' : 'none'
+  n.policy.electoralSystem = ['USA', 'GBR', 'CAN', 'IND', 'PAK', 'BGD', 'NGA', 'MYS', 'KEN', 'GHA', 'FRA', 'AUS'].includes(iso) ? 'fptp' : ['DEU', 'JPN', 'KOR', 'MEX', 'NZL', 'HUN', 'ITA', 'RUS', 'TWN', 'PHL', 'THA'].includes(iso) ? 'mixed' : 'pr'
+  n.policy.swf = b.shares.oilRents + b.shares.mineralRents > 0.08 ? (['NOR', 'SAU', 'ARE', 'QAT', 'KWT', 'KAZ', 'AZE', 'BWA', 'CHL'].includes(iso) ? 'fund' : 'spend') : 'spend'
+  n.policy.fuelSubsidy = ['VEN', 'IRN', 'SAU', 'KWT', 'DZA', 'LBY', 'IRQ', 'EGY', 'NGA', 'TKM', 'QAT', 'ARE', 'OMN', 'BHR'].includes(iso) ? (b.shares.oilRents > 0.1 ? 'heavy' : 'subsidized') : ['IDN', 'IND', 'MYS', 'PAK', 'BGD', 'ECU', 'BOL'].includes(iso) ? 'subsidized' : 'market'
+  n.policy.priceControls = ['VEN', 'ARG', 'EGY', 'CUB', 'PRK', 'IRN'].includes(iso) ? 'essentials' : 'none'
+  n.policy.pensionSystem = ['CHL', 'AUS', 'CHE', 'SWE', 'NLD', 'DNK', 'MEX', 'COL', 'PER'].includes(iso) ? 'mixed' : 'payg'
+  n.policy.adaptation = ['NLD', 'SGP', 'BGD', 'JPN'].includes(iso) ? 'basic' : 'none'
   n.policy.government = gov
+  n.policy.termLimits = gov === 'democracy' ? 'two' : 'none'
   const auth = gov !== 'democracy' && gov !== 'monarchy'
   if (auth) { n.policy.press = b.voice < 25 ? 'state' : 'regulated'; n.policy.judiciary = b.voice < 25 ? 'captured' : 'influenced'; n.policy.internet = b.voice < 20 ? 'firewall' : 'filtered' }
   if (gov === 'theocracy') { n.policy.religion = 'theocratic'; n.policy.gender = 'traditional' }
@@ -173,8 +193,8 @@ export function aiWeek(g: Game, n: Nation) {
   }
   for (const k of Object.keys(B.grievances)) { B.grievances[+k] *= 0.97; if (B.grievances[+k] < 1) delete B.grievances[+k] }
 
-  fiscal(n)
-  if (Math.random() < 0.06) reviewPolicy(g, n)
+  fiscal(n, B.ideology)
+  if (Math.random() < 0.06) reviewPolicy(g, n, B.ideology)
   if (Math.random() < 0.15) buildSomething(g, n)
   if (Math.random() < 0.25 * (0.5 + B.ambition)) expand(g, n)
   if (n.reserve > 3) g.autodeploy(n, n.wars.length ? 0.35 : 0.3)
@@ -183,7 +203,16 @@ export function aiWeek(g: Game, n: Nation) {
   void I
 }
 
-function fiscal(n: Nation) {
+/** A rival party governs a player's nation while the player is in opposition or exile. */
+export function caretakerWeek(g: Game, n: Nation) {
+  const P = n.power
+  const ide = PARTY_MAP[P.govParty]?.ideology ?? { left: 0.2, right: 0.5, auth: 0.9, lib: 0, trad: 0.5, prog: 0, nat: 0.8, glob: 0.1, green: 0, hawk: 0.9 }
+  fiscal(n, ide)
+  const fresh = g.tick - P.since < 360
+  if (Math.random() < (fresh ? 0.12 : 0.05)) reviewPolicy(g, n, ide, true)
+}
+
+function fiscal(n: Nation, ideology: Record<Ideology, number>) {
   const I = n.idx, P = n.policy, b = n.budget
   const debt = I.debt ?? 0, deficit = I.deficit ?? 0
   // consolidation scales with how bad things are
@@ -196,42 +225,54 @@ function fiscal(n: Nation) {
     for (const [line, fl] of Object.entries(FLOOR)) b[line] = Math.max(Math.min(fl, b[line]), b[line] * (1 - 0.015 * k))
   }
   else if (deficit > 2 && debt < 40) {
-    if ((n.brain!.ideology.right ?? 0) > 0.3) P.incomeTax = Math.max(5, +P.incomeTax - 1)
+    if ((ideology.right ?? 0) > 0.3) P.incomeTax = Math.max(5, +P.incomeTax - 1)
     else b.education = Math.min(8, b.education + 0.1)
     b.infrastructure = Math.min(6, b.infrastructure + 0.1)
   }
   if ((I.unemployment ?? 5) > 10) b.infrastructure = Math.min(7, b.infrastructure + 0.15)
   if (n.wars.length) b.defense = Math.min(10, b.defense + 0.15)
-  else if (b.defense > (n.brain!.ideology.hawk * 4 + 1)) b.defense -= 0.05
+  else if (b.defense > (ideology.hawk * 4 + 1)) b.defense -= 0.05
 }
 
-function reviewPolicy(g: Game, n: Nation) {
-  const ide = n.brain!.ideology
+/** Situational modifiers as the AI sees them: pension costs scale with how old the population is. */
+function seen(n: Nation, p: (typeof POLICIES)[number], v: string | number, yrs: number): Mods {
+  const m = optionMods(p, v, n.cond, yrs)
+  if (m.pension) return { ...m, pension: m.pension * (n.demo.old / 0.12) }
+  return m
+}
+
+function reviewPolicy(g: Game, n: Nation, ide: Record<Ideology, number>, caretaker = false) {
   // target the angriest important faction most of the time
   const angry = Object.entries(n.blocs).map(([k, v]) => ({ k, s: (50 - v) * (n.blocWeights[k as keyof typeof n.blocWeights] ?? 0.1) })).sort((a, b) => b.s - a.s)[0]
-  const candidates = POLICIES.filter(p => p.kind === 'choice' && p.id !== 'government' && (n.cooldowns[p.id] ?? 0) <= g.tick)
+  // constitutional choices, the bomb and the currency regime are not everyday politics
+  const FROZEN = new Set(['government', 'nuclear', 'currency', 'fiscalRule', 'electoralSystem', 'termLimits'])
+  const candidates = POLICIES.filter(p => p.kind === 'choice' && !FROZEN.has(p.id) && (n.cooldowns[p.id] ?? 0) <= g.tick)
   const IDENTITY = new Set(['religion', 'gender', 'lgbt', 'deathPenalty', 'minorityRights', 'economicSystem', 'family', 'press', 'judiciary', 'internet', 'drugs', 'guns'])
   let best: { id: string; v: string; gain: number } | null = null
   for (const p of candidates) {
     if (p.kind !== 'choice') continue
-    const cur = scoreMods(optionMods(p, n.policy[p.id]), ide, n.blocWeights) + (angry && angry.s > 3 ? (optionMods(p, n.policy[p.id])['bloc:' + angry.k] ?? 0) * 0.08 : 0)
-    const curMods = optionMods(p, n.policy[p.id])
+    const yrs = policyYears(n, p.id, g.tick)
+    const curMods = seen(n, p, n.policy[p.id], yrs)
+    const cur = scoreMods(curMods, ide, n.blocWeights) + (angry && angry.s > 3 ? (curMods['bloc:' + angry.k] ?? 0) * 0.08 : 0)
     for (const o of p.options) {
       if (o.id === n.policy[p.id]) continue
+      const om = seen(n, p, o.id, 0)
       // identity politics only move in the direction of the nation's ideology
-      if (IDENTITY.has(p.id) && ideologyScore(o.mods, ide) <= ideologyScore(curMods, ide) + 0.3) continue
-      const upheaval = Object.entries(o.mods).filter(([k]) => k.startsWith('bloc:')).reduce((a, [, v]) => a + Math.abs(v), 0) * 0.015
-      const s = scoreMods(o.mods, ide, n.blocWeights) - upheaval + (angry && angry.s > 3 ? (o.mods['bloc:' + angry.k] ?? 0) * 0.08 : 0) + (Math.random() - 0.5) * 0.4
+      if (IDENTITY.has(p.id) && ideologyScore(om, ide) <= ideologyScore(curMods, ide) + 0.3) continue
+      const upheaval = Object.entries(om).filter(([k]) => k.startsWith('bloc:')).reduce((a, [, v]) => a + Math.abs(v), 0) * 0.015
+      const leave = p.options.find(x => x.id === n.policy[p.id])?.onLeave?.(n.cond, yrs)
+      const backlash = leave ? Object.values(leave).reduce((a, v) => a + Math.max(0, -v), 0) * 0.03 : 0
+      const s = scoreMods(om, ide, n.blocWeights) - upheaval - backlash + (angry && angry.s > 3 ? (om['bloc:' + angry.k] ?? 0) * 0.08 : 0) + (Math.random() - 0.5) * 0.4
       const gain = s - cur
       if (!best || gain > best.gain) best = { id: p.id, v: o.id, gain }
     }
   }
-  if (best && best.gain > 1.2) {
+  if (best && best.gain > (caretaker ? 0.8 : 1.2)) {
     n.policy[best.id] = best.v
-    n.cooldowns[best.id] = g.tick + 360 * 2
+    if (!caretaker) n.cooldowns[best.id] = g.tick + 360 * 2
     const def = POLICIES.find(p => p.id === best!.id)!
     const label = def.kind === 'choice' ? def.options.find(o => o.id === best!.v)?.label : best.v
-    if (Math.random() < 0.35) g.pushNews('event', `${n.name} changes ${def.label.toLowerCase()}: ${label}.`, [n.id])
+    if (caretaker || Math.random() < 0.35) g.pushNews('event', `${n.name}${caretaker ? `'s ${PARTY_MAP[n.power.govParty]?.name ?? 'new'} government` : ''} changes ${def.label.toLowerCase()}: ${label}.`, [n.id])
   }
 }
 
@@ -355,3 +396,29 @@ function war(g: Game, n: Nation) {
   if (target) safe(() => g.declareWar(n, target))
 }
 
+
+/**
+ * Real-world data gives tax revenue excluding many levies, and spending including everything, so a
+ * freshly seeded country can start with an implausible hole in its budget. Close it the way real
+ * governments are financed: broaden consumption and income taxes first, then trim spending, until the
+ * deficit is about 2.5% of GDP.
+ */
+export function balanceAIBudget(n: Nation) {
+  const gdp = Math.max(0.001, n.gdp), L = n.ledger
+  const rev = Object.values(L.revenue).reduce((a, x) => a + x, 0)
+  const spend = Object.values(L.spending).reduce((a, x) => a + x, 0) - (L.spending.interest ?? 0)
+  let need = spend - rev - gdp * 0.025
+  if (need <= 0) return
+  const P = n.policy
+  const yV = (L.revenue.vat ?? 0) / Math.max(1, +P.vat) || gdp * 0.0035
+  const dv = clamp((need * 0.45) / yV, 0, 20 - +P.vat)
+  P.vat = Math.round(+P.vat + dv); need -= dv * yV
+  const yI = (L.revenue.income ?? 0) / Math.max(1, +P.incomeTax) || gdp * 0.002
+  const di = clamp((need * 0.5) / yI, 0, 48 - +P.incomeTax)
+  P.incomeTax = Math.round(+P.incomeTax + di); need -= di * yI
+  if (need <= 0) return
+  const lines = ['health', 'education', 'welfare', 'infrastructure', 'rnd', 'defense', 'culture', 'sports', 'environment', 'subsidies', 'admin', 'security', 'diplomacy']
+  const disc = lines.reduce((a, k) => a + gdp * (n.budget[k] ?? 0) / 100, 0)
+  const f = Math.max(0.65, 1 - need / Math.max(0.001, disc))
+  for (const k of lines) n.budget[k] = Math.round((n.budget[k] ?? 0) * f * 100) / 100
+}

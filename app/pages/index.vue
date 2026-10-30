@@ -4,7 +4,8 @@ import { useGame } from '~/composables/useGame'
 const { ui, me, snap } = useGame()
 function onKey(e: KeyboardEvent) {
   if (e.key !== 'Escape') return
-  if (ui.provinceView != null) ui.provinceView = null
+  if (ui.why) ui.why = null
+  else if (ui.provinceView != null) ui.provinceView = null
   else if (ui.gov) ui.gov = null
   else if (ui.showIssue) ui.showIssue = false
   else { ui.selected = null; ui.inspectNation = null }
@@ -38,6 +39,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     <Government v-if="ui.gov && me" />
     <ProvinceView v-if="ui.provinceView != null" :key="'pv' + ui.provinceView" />
     <IssueModal v-if="ui.showIssue && snap?.issue" />
+    <WhyPanel />
     <Toasts />
     <nav class="tabbar glass">
       <button :class="{ on: !ui.sheet && !picked }" @click="tab(null)"><span>🌍</span>Map</button>

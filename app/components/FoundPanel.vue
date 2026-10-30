@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { PARTIES, PARTY_MAP } from '~~/shared/power'
 import { ref, computed } from 'vue'
 import { TERRAIN } from '~~/shared/rules'
 import { useGame, fmtPop, fmtUsd } from '~/composables/useGame'
@@ -9,6 +10,7 @@ const name = ref('')
 const leader = ref('')
 const motto = ref('')
 const color = ref(COLORS[Math.floor(Math.random() * COLORS.length)])
+const party = ref('liberal')
 
 const target = computed(() => {
   const id = ui.selected
@@ -58,7 +60,7 @@ const traits = computed(() => {
 
 function found() {
   if (ui.selected == null) return
-  send({ t: 'found', province: ui.selected, name: name.value, leader: leader.value, color: color.value, motto: motto.value })
+  send({ t: 'found', province: ui.selected, name: name.value, leader: leader.value, color: color.value, motto: motto.value, party: party.value })
 }
 const ready = computed(() => name.value.trim().length >= 3 && target.value?.free)
 </script>
@@ -81,6 +83,11 @@ const ready = computed(() => name.value.trim().length >= 3 && target.value?.free
     <div class="colors">
       <button v-for="c in COLORS" :key="c" :class="{ on: c === color }" :style="{ background: c }" @click="color = c" />
     </div>
+    <div class="section-title">Your party</div>
+    <div class="parties">
+      <button v-for="p in PARTIES" :key="p.id" :class="{ on: party === p.id }" :style="{ '--pc': p.color }" @click="party = p.id">{{ p.icon }} {{ p.name }}</button>
+    </div>
+    <p class="fine">{{ PARTY_MAP[party].pitch }} You start as a liberal democracy: lose an election and you go into opposition until you win one back. Your party decides which factions forgive you most.</p>
 
     <div class="section-title">Homeland</div>
     <div v-if="!target" class="pick muted">🌍 Click a province on the globe to inspect it.</div>
@@ -132,5 +139,8 @@ h1 { margin: 4px 0 6px; font-size: 24px; letter-spacing: -0.01em; }
 .traits { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 12px; }
 .traits span { color: var(--text); }
 .go { margin-top: 14px; padding: 11px; font-size: 14px; }
+.parties { display: flex; flex-wrap: wrap; gap: 4px; }
+.parties button { background: rgba(255,255,255,.05); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font-size: 11.5px; font-weight: 600; color: #cbd2dc; }
+.parties button.on { border-color: var(--pc); color: var(--text); box-shadow: inset 0 0 0 1px var(--pc); }
 .fine { font-size: 11px; margin-top: 8px; line-height: 1.5; }
 </style>

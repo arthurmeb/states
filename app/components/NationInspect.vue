@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { PARTY_MAP } from '~~/shared/power'
 import { computed } from 'vue'
 import { GOV_LABEL, STRATEGIES, dateOf } from '~~/shared/rules'
 import { INDEX_MAP, formatIndex } from '~~/shared/indices'
@@ -27,6 +28,11 @@ function declare() { if (n.value && confirm(`Declare war on ${n.value.name}? The
       <button class="x" @click="ui.inspectNation = null">✕</button>
     </div>
     <div v-if="n.motto" class="motto">“{{ n.motto }}”</div>
+    <div v-if="n.govPartyName" class="gov-line muted">
+      Governed by <b :style="{ color: PARTY_MAP[n.govParty]?.color ?? '#adb5bd' }">{{ PARTY_MAP[n.govParty]?.icon ?? '🪖' }} {{ n.govPartyName }}</b>
+      <span v-if="n.nextElection && snap"> · election in {{ Math.max(0, Math.round((n.nextElection - snap.tick) / 30)) }} months<span v-if="n.idx.poll"> · polling {{ n.idx.poll.toFixed(0) }}%</span></span>
+      <span v-else> · no elections</span>
+    </div>
     <div class="row" style="gap:4px;margin:6px 0 8px;flex-wrap:wrap">
       <span class="tag" :class="n.ai ? 'ai' : 'player'">{{ n.ai ? 'AI nation' : n.online ? '● Player · online' : 'Player · offline' }}</span>
       <span class="tag">{{ STRATEGIES[n.strategy]?.label }}</span>
@@ -68,6 +74,7 @@ function declare() { if (n.value && confirm(`Declare war on ${n.value.name}? The
 .flag { width: 36px; height: 25px; border-radius: 3px; margin-right: 10px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.4); }
 h2 { margin: 0; font-size: 17px; }
 .small { font-size: 11.5px; line-height: 1.65; }
+.gov-line { font-size: 11.5px; margin-top: 5px; }
 .motto { font-style: italic; color: #c5cbd6; font-size: 12px; margin-top: 6px; }
 .x { background: none; border: 0; color: var(--muted); font-size: 14px; align-self: flex-start; }
 .ig { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }

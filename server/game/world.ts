@@ -8,15 +8,24 @@ import { PROJECT_MAP, type ProjectDef } from '../../shared/projects'
 import { claimCost, DAYS_PER_MONTH, PROTECTION_DAYS, TRUCE_DAYS, DEMOCRATIC, dateOf } from '../../shared/rules'
 import { loadWorldData, baselineOf, type Baseline } from './data'
 import type { Nation, Prov } from './model'
-import { computeMods, defaultBudget, defaultPolicy } from './mods'
+import { computeMods, defaultBudget, defaultPolicy, M } from './mods'
 import { staticFit, initProvinces, provinceEconomy, statelessCtx, nationCtx, NOFF, type Ctx } from './economy'
 import { aggregate, nationDay, calibrateNation } from './nation'
-import { politicsDay, politicsMonth, unrestDay, blocWeights } from './politics'
+import { politicsDay, unrestDay, blocWeights } from './politics'
+import { computeCond } from './conditions'
+import { initDemo, demographyDay, projectOld } from './demography'
+import { initFin, financeDay, financeMonth } from './finance'
+import { initTrends, trendsMonth, TRENDS_2030, type Trends } from './trends'
+import { initPower, powerWeek, powerMonth, costCtx, spendPC, partyName } from './power'
+import { computeRisks } from './risks'
+import { policyYears } from './mods'
+import { DEFAULT_COND } from '../../shared/conditions'
+import { policyCost, budgetCost, ELECTORAL, PARTY_MAP } from '../../shared/power'
 import { nationIndices, relativeIndices } from './indices'
 import { tradeWeek, influenceOf } from './trade'
 import { GameError, launchAttack, resolveBattles } from './military'
 import { ISSUES, worldMonth } from './events'
-import { setupAINation, aiWeek, aiAccepts, attitude, revealedIdeology, chooseStrategy, applyStrategy } from './ai'
+import { setupAINation, aiWeek, aiAccepts, attitude, revealedIdeology, chooseStrategy, applyStrategy, caretakerWeek, balanceAIBudget } from './ai'
 import { trackWeek, snapshotOf } from './trajectory'
 import { AI_SEEDS, NEW_STATE_COLORS, PERSONA } from './seeds'
 
@@ -57,6 +66,7 @@ export class Game {
   influence = new Map<string, number>()
   aid = new Map<string, number>()
   tradeBlocs: TradeBloc[] = []
+  trends: Trends = TRENDS_2030()
   games: GamesState = { edition: 1, nextTick: 48 * DAYS_PER_MONTH, host: null, hostCity: null, bidsOpen: false, bids: [], lastHost: null, lastMedals: [] }
   gamesHosted = new Map<number, number>()
   aggressors = new Map<number, number>()
@@ -191,6 +201,7 @@ export class Game {
     for (const p of this.prov) { wgdp += p.gdp; for (let s = 0; s < NS; s++) wq[s] += p.output[s] }
     this.demandShare = wq.map(q => q / wgdp)
     this.worldGdppc = (wgdp * 12e6) / this.prov.reduce((a, p) => a + p.pop, 0)
+    this.trends = initTrends(this)
     for (const [name, leader, lat, lon, size, color] of AI_SEEDS) {
       const cap = this.nearestFree(lat, lon)
       if (cap < 0) continue
@@ -199,6 +210,7 @@ export class Game {
     this.ownedDirty = true
     this.ctxCache.clear()
     for (let i = 0; i < 6; i++) { this.dailyEconomy(0); tradeWeek(this) }
+    this.trends = initTrends(this)
     this.pushNews('event', `The world map is drawn on ${dateOf(0)}. ${this.nations.size} powers watch the unclaimed lands.`)
     console.log(`[states] world ready: ${this.P.length} provinces, ${this.nations.size} AI nations, world GDP $${(wgdp * 12 / 1000).toFixed(1)}T`)
   }
@@ -214,8 +226,9 @@ export class Game {
     Object.assign(n.policy, PERSONA.policy)
     for (const [k, v] of Object.entries(PERSONA.budget)) n.budget[k as keyof typeof n.budget] = v
     applyStrategy(n)
-    n.mods = computeMods(n.policy)
+    n.mods = computeMods(n, this.tick)
     Object.assign(this.prov[n.capital].policy, PERSONA.capital)
+    n.power = initPower(this, n, 'liberal')
     n.tracker = snapshotOf(this, n)
     this.ownedDirty = true; this.ctxCache.clear()
     this.pushNews('found', `🧭 ${n.name} is founded on the Strait of Malacca. ${n.leader}: “${n.motto}”`, [n.id])
@@ -249,7 +262,7 @@ export class Game {
     // pop-weighted real-world baseline of the territory
     let pop = 0
     const acc: Record<string, number> = {}
-    const keys = ['tech', 'inst', 'corruption', 'renewables', 'fertility', 'lifeExp', 'internet', 'gini', 'homicide', 'gdppc', 'milSpend', 'debt', 'unemployment', 'inflation', 'voice', 'taxRev', 'co2'] as const
+    const keys = ['tech', 'inst', 'corruption', 'renewables', 'fertility', 'lifeExp', 'internet', 'gini', 'homicide', 'gdppc', 'milSpend', 'debt', 'unemployment', 'inflation', 'voice', 'taxRev', 'co2', 'age65', 'age014'] as const
     let troops = 0
     for (const pid of region) {
       const w = this.prov[pid].pop, b = this.base(this.P[pid].iso3)
@@ -277,6 +290,8 @@ export class Game {
       wars: [], allies: [], pacts: [], truces: {}, embargoes: [], sanctions: [], tariffs: {}, blockades: [], aidTargets: [], tradeBloc: null,
       protectedUntil: o.ai ? 0 : this.tick + PROTECTION_DAYS, nextElection: null,
       idx: {}, history: { t: [], series: {} }, log: [], gdpMonthly: [],
+      cond: { ...DEFAULT_COND }, since: {}, sinceVal: {}, demo: initDemo(acc.age014 / 100, acc.age65 / 100),
+      fin: initFin(acc.gdppc, b0.shares.services * 0.1 * clamp(acc.gdppc / 30000, 0.15, 1.3)), power: null!, drivers: {}, modSrc: {}, risks: [], v3: true,
       ledger: { revenue: {}, spending: {}, net: 0 }, mods: {}, brain: null, issue: null, nextIssue: this.tick + 20,
       gdp: 0, gdpReal: 0, pop: 0, provinces: 0, troops: 0, casualties: 0, sectorOut: new Array(NS).fill(0), sectorJobs: new Array(NS).fill(0),
       exports: new Array(NS).fill(0), imports: new Array(NS).fill(0), aidReceived: 0, tariffRevenue: 0, shortage: 0, projectNational: {},
@@ -289,9 +304,14 @@ export class Game {
     this.ownedDirty = true
     this.ctxCache.delete(id)
     if (o.ai) setupAINation(this, n, b0)
-    n.mods = computeMods(n.policy)
+    n.power = initPower(this, n)
     aggregate(this, n)
-    if (n.brain) { n.brain.strategy = n.brain.locked ?? chooseStrategy(this, n); applyStrategy(n); n.mods = computeMods(n.policy) }
+    n.cond = computeCond(this, n)
+    n.mods = computeMods(n, this.tick)
+    if (n.brain) { n.brain.strategy = n.brain.locked ?? chooseStrategy(this, n); applyStrategy(n); n.mods = computeMods(n, this.tick) }
+    // pensions are paid separately from other social protection
+    n.demo.pensions = n.demo.old * 42 * Math.max(0.2, 1 + M(n.mods, 'pension'))
+    if (o.ai) n.budget.welfare = Math.max(1, n.budget.welfare - n.demo.pensions * 0.85)
     const annual = n.gdp * 12
     n.treasury = o.ai ? -(acc.debt / 100) * annual : n.gdp * 3
     n.reserve = o.ai ? clamp(troops || pop * 0.003, pop * 0.0005, pop * 0.02) : Math.max(5, pop * 0.0015)
@@ -307,6 +327,7 @@ export class Game {
     this.ctxCache.delete(id)
     n.blocWeights = blocWeights(this, n)
     calibrateNation(this, n)
+    if (o.ai) { balanceAIBudget(n); n.mods = computeMods(n, this.tick); calibrateNation(this, n) }
     politicsDay(this, n, 0)
     nationIndices(this, n)
     // index offsets so founding values match the territory's real data
@@ -316,9 +337,29 @@ export class Game {
     nationIndices(this, n)
     n.stockOff.democracy = acc.voice / 10.5 - (n.idx.democracy ?? 5)
     n.ref = { growth: this.countries[capIso]?.data.gdp_growth ?? 2, homicide: acc.homicide, safety: n.idx.safety ?? 50, co2: acc.co2, gdppc: this.gdppc(n), renewables: acc.renewables }
+    // real labour, jobless and productivity data already reflect the founding institutions: policies move them from here
+    n.ref.laborPart = n.mods.laborPart ?? 0; n.ref.unemployment = n.mods.unemployment ?? 0; n.ref.productivity = n.mods.productivity ?? 0
     nationIndices(this, n)
+    n.cond = computeCond(this, n)
     n.tracker = snapshotOf(this, n) // decisions from day one are logged
     return n
+  }
+
+  /** Bring a nation from an older save up to the v3 simulation (demography, finance, power). */
+  private migrate(n: Nation) {
+    n.since ??= {}; n.sinceVal ??= {}; n.drivers ??= {}; n.modSrc ??= {}; n.risks ??= []
+    n.cond ??= { ...DEFAULT_COND }
+    if (!n.demo) { const b = this.base(n.iso3); n.demo = initDemo(b.age014 / 100, b.age65 / 100) }
+    if (!n.fin) n.fin = initFin(this.gdppc(n), (n.sectorOut[SECTORS.findIndex(s => s.id === 'finance')] ?? 0) / Math.max(0.001, n.gdp))
+    if (!n.power) n.power = initPower(this, n)
+    if (n.ref.laborPart == null) { const m = computeMods(n, this.tick); n.ref.laborPart = m.laborPart ?? 0; n.ref.unemployment = m.unemployment ?? 0; n.ref.productivity = m.productivity ?? 0 }
+    if (!n.v3) {
+      n.mods = computeMods(n, this.tick)
+      n.demo.pensions = n.demo.old * 42 * Math.max(0.2, 1 + M(n.mods, 'pension'))
+      n.budget.welfare = Math.max(1, n.budget.welfare - n.demo.pensions * 0.85)
+      n.gdpMonthly = [] // now stored per person
+      n.v3 = true
+    }
   }
 
   // ───────────────────────── persistence ─────────────────────────
@@ -331,7 +372,7 @@ export class Game {
       bias: Array.from(this.bias, r2), off: Array.from(this.off, r2),
       nations: [...this.nations.values()], battles: this.battles, news: this.news, chat: this.chat, proposals: this.proposals,
       players: this.players, prices: this.prices, demandShare: this.demandShare, sell: [...this.sell], tradeBlocs: this.tradeBlocs,
-      games: this.games, gamesHosted: [...this.gamesHosted], aggressors: [...this.aggressors], worldGdppc: this.worldGdppc,
+      games: this.games, gamesHosted: [...this.gamesHosted], aggressors: [...this.aggressors], worldGdppc: this.worldGdppc, trends: this.trends,
     }
     writeFileSync(this.savePath + '.tmp', JSON.stringify(data))
     renameSync(this.savePath + '.tmp', this.savePath)
@@ -349,6 +390,9 @@ export class Game {
       this.prices.splice(0, NS, ...d.prices)
       this.sell = new Map(d.sell); this.gamesHosted = new Map(d.gamesHosted); this.aggressors = new Map(d.aggressors)
       this.ownedDirty = true
+      this.trends = d.trends ?? initTrends(this)
+      for (const p of this.prov) p.res ??= { oil: 1, metals: 1 }
+      for (const n of this.nations.values()) this.migrate(n)
       tradeWeek(this)
       console.log(`[states] loaded world at ${dateOf(this.tick)} with ${this.nations.size} nations`)
       return true
@@ -361,7 +405,11 @@ export class Game {
   // ───────────────────────── the daily tick ─────────────────────────
   private dailyEconomy(dt: number) {
     this.ctxCache.clear()
-    for (const n of this.nations.values()) n.mods = computeMods(n.policy)
+    for (const n of this.nations.values()) {
+      if (!n.alive) continue
+      n.cond = computeCond(this, n)
+      n.mods = computeMods(n, this.tick)
+    }
     const revolts: number[] = []
     for (let pid = 0; pid < this.P.length; pid++) {
       const ctx = this.ctxFor(pid)
@@ -373,8 +421,10 @@ export class Game {
       if (!n.alive) continue
       aggregate(this, n)
       n.troops = n.reserve + this.owned(n.id).reduce((a, p) => a + this.prov[p].garrison, 0)
+      if (dt > 0) { demographyDay(this, n, dt); financeDay(n, dt) }
       nationDay(this, n, dt); politicsDay(this, n, dt)
       nationIndices(this, n)
+      n.idx.old = n.demo.old * 100; n.idx.pensions = n.demo.pensions; n.idx.young = n.demo.young * 100; n.idx.legitimacy = n.legitimacy
     }
     relativeIndices(this)
     if (revolts.length) this.handleRevolts(revolts)
@@ -397,20 +447,30 @@ export class Game {
     }
     for (const n of [...this.nations.values()]) if (n.alive && n.ai && (this.tick + n.id) % 7 === 0) aiWeek(this, n)
     this.diplomacyQueue()
-    if (this.tick % 7 === 0) for (const n of this.nations.values()) if (n.alive) trackWeek(this, n)
+    if (this.tick % 7 === 0) for (const n of this.nations.values()) {
+      if (!n.alive) continue
+      powerWeek(this, n)
+      n.risks = computeRisks(this, n)
+      trackWeek(this, n)
+    }
+    // governments of other parties run players' nations while they are out of office
+    for (const n of this.nations.values()) if (n.alive && !n.ai && n.power.office !== 'governing' && (this.tick + n.id) % 7 === 0) caretakerWeek(this, n)
     if (this.tick % DAYS_PER_MONTH === 0) this.monthly()
   }
 
   private monthly() {
     for (const n of [...this.nations.values()]) {
       if (!n.alive) continue
-      n.gdpMonthly.push(n.gdpReal || n.gdp)
+      // real GDP per person (so annexing or losing land isn't counted as growth)
+      n.gdpMonthly.push((n.gdpReal || n.gdp) / Math.max(1, n.pop))
       if (n.gdpMonthly.length > 25) n.gdpMonthly.shift()
-      politicsMonth(this, n)
-      if (!n.ai) this.issueTick(n)
+      powerMonth(this, n)
+      financeMonth(this, n)
+      if (!n.ai && n.alive) this.issueTick(n)
       // long-held provinces become heartland
       for (const pid of this.owned(n.id)) { const p = this.prov[pid]; if (p.core !== n.id && this.tick - (p.since ?? 0) > 360 * 15 && p.unrest < 30) p.core = n.id }
     }
+    trendsMonth(this)
     worldMonth(this)
     this.spawnNewStates()
     this.save()
@@ -418,12 +478,25 @@ export class Game {
 
   private issueTick(n: Nation) {
     if (n.issue && n.issue.expires <= this.tick) { n.stability = Math.max(0, n.stability - 3); n.issue = null; n.nextIssue = this.tick + 60 }
-    if (!n.issue && this.tick >= n.nextIssue) {
-      const pool = ISSUES.filter(t => !t.when || t.when(n, this))
+    // urgent crises jump the queue (each at most every few years)
+    if (!n.issue?.urgent && n.power.office === 'governing') {
+      const urgent = ISSUES.find(t => t.urgent && (n.issueSeen?.[t.key] ?? -1e9) < this.tick - 360 * 3 && t.when?.(n, this))
+      if (urgent) { this.setIssue(n, urgent.key); return }
+    }
+    if (!n.issue && this.tick >= n.nextIssue && n.power.office === 'governing') {
+      const pool = ISSUES.filter(t => !t.urgent && (!t.when || t.when(n, this)))
       const tpl = pool[Math.floor(Math.random() * pool.length)]
-      if (tpl) n.issue = { key: tpl.key, id: `${tpl.key}-${this.tick}`, title: tpl.title, text: tpl.text(n, this), options: tpl.options.map(o => ({ label: o.label, desc: o.desc })), expires: this.tick + 90 }
+      if (tpl) this.setIssue(n, tpl.key)
     }
   }
+  private setIssue(n: Nation, key: string) {
+    const tpl = ISSUES.find(t => t.key === key)
+    if (!tpl) return
+    ;(n.issueSeen ??= {})[key] = this.tick
+    n.issue = { key, id: `${key}-${this.tick}`, title: tpl.title, text: tpl.text(n, this), options: tpl.options.map(o => ({ label: o.label, desc: o.desc })), expires: this.tick + (tpl.urgent ? 45 : 90), urgent: !!tpl.urgent }
+  }
+  /** A crisis that demands an immediate decision. */
+  urgentIssue(n: Nation, key: string) { if (!n.ai && n.power.office === 'governing') this.setIssue(n, key) }
 
   private progressProjects(pid: number, dt: number) {
     const p = this.prov[pid]
@@ -515,7 +588,7 @@ export class Game {
   // ───────────────────────── player actions ─────────────────────────
   playerNation(token: string) { const id = this.players[token]; return id != null ? this.nations.get(id) : undefined }
 
-  found(token: string, province: number, name: string, leader: string, color: string, motto: string) {
+  found(token: string, province: number, name: string, leader: string, color: string, motto: string, party?: string) {
     if (this.playerNation(token)) throw new GameError('You already lead a nation.')
     const P = this.P[province]
     if (!P) throw new GameError('Invalid province.')
@@ -528,38 +601,65 @@ export class Game {
     const region = [province, ...P.nb.filter(q => this.prov[q].owner === -1 && this.P[q].terrain !== 'ice')]
     const n = this.createNation({ name, leader: leader || 'The People', color, motto, ai: false, token }, region)
     this.players[token] = n.id
+    if (party && PARTY_MAP[party]) n.power = initPower(this, n, party)
     this.pushNews('found', `🏳 ${n.name} declares independence in ${P.name}${motto ? ` — “${motto}”` : ''}.`, [n.id], province)
     return n
   }
   abandon(n: Nation) { this.fall(n, `${n.name} has been dissolved by its own government.`) }
 
+  /** Political capital a player must spend for a change (0 for AI nations). */
+  cost(n: Nation, kind: 'policy' | 'budget' | 'local', id: string, value: string | number | Record<string, number>): number {
+    if (n.ai) return 0
+    const cc = costCtx(this, n)
+    if (kind === 'policy') return policyCost(id, n.policy[id], value as string | number, n.cond, policyYears(n, id, this.tick), cc)
+    if (kind === 'budget') return budgetCost(n.budget, value as Record<string, number>, cc)
+    return Math.round((id === 'sez' || id === 'autonomy' || id === 'security' ? 3 : 1) * cc.mult * 10) / 10
+  }
+  private pay(n: Nation, cost: number, what: string) {
+    if (!n.ai && n.power.office !== 'governing') throw new GameError('You are not in government.')
+    if (n.ai || cost <= 0) return
+    const err = spendPC(n, cost, what)
+    if (err) throw new GameError(err)
+  }
+
   setPolicy(n: Nation, id: string, value: string | number) {
     const def = POLICY_MAP[id]
     if (!def) throw new GameError('Unknown policy.')
     if ((n.cooldowns[id] ?? 0) > this.tick) throw new GameError(`${def.label} can be changed again in ${Math.ceil((n.cooldowns[id] - this.tick) / DAYS_PER_MONTH)} months.`)
+    if (!n.ai && n.power.office !== 'governing') throw new GameError('You are not in government.')
     if (def.kind === 'slider') {
-      n.policy[id] = clamp(Math.round((+value || 0) / def.step) * def.step, def.min, def.max)
+      const v = clamp(Math.round((+value || 0) / def.step) * def.step, def.min, def.max)
+      if (v === n.policy[id]) return
+      this.pay(n, this.cost(n, 'policy', id, v), def.label.toLowerCase())
+      n.policy[id] = v
     } else {
       if (!def.options.some(o => o.id === value)) throw new GameError('Invalid option.')
       if (n.policy[id] === value) return
+      this.pay(n, this.cost(n, 'policy', id, value), `“${def.options.find(o => o.id === value)?.label}”`)
       n.policy[id] = value
       if (def.cooldown) n.cooldowns[id] = this.tick + def.cooldown * DAYS_PER_MONTH
       if (id === 'government') {
         n.stability = Math.max(0, n.stability - 12)
         this.pushNews('event', `🏛 ${n.name} adopts a new constitution: ${def.options.find(o => o.id === value)?.label}.`, [n.id])
         if (!DEMOCRATIC.has(String(value))) n.nextElection = null
+        else if (n.nextElection == null) n.nextElection = this.tick + 12 * DAYS_PER_MONTH
       }
     }
-    n.mods = computeMods(n.policy)
+    n.mods = computeMods(n, this.tick)
   }
   setBudget(n: Nation, budget: Budget) {
-    for (const line of BUDGET) if (budget[line.id] != null) n.budget[line.id] = clamp(+budget[line.id] || 0, 0, line.max)
+    const next: Record<string, number> = { ...n.budget }
+    for (const line of BUDGET) if (budget[line.id] != null) next[line.id] = clamp(+budget[line.id] || 0, 0, line.max)
+    this.pay(n, this.cost(n, 'budget', '', next), 'this budget')
+    Object.assign(n.budget, next)
   }
   setSubsidies(n: Nation, sectors: SectorId[]) { n.subsidies = sectors.filter(s => SECTOR_IDS.includes(s)).slice(0, 3) }
   setLocal(n: Nation, pid: number, id: LocalPolicyId, value: string) {
     if (this.prov[pid]?.owner !== n.id) throw new GameError('Not your province.')
     const def = LOCAL_POLICIES.find(l => l.id === id)
     if (!def || !def.options.some(o => o.id === value)) throw new GameError('Invalid local policy.')
+    if (this.prov[pid].policy[id] === value) return
+    this.pay(n, this.cost(n, 'local', id, value), `${def.label.toLowerCase()} in ${this.P[pid].name}`)
     this.prov[pid].policy[id] = value
   }
 
@@ -777,7 +877,7 @@ export class Game {
     const opt = tpl?.options[option]
     if (!tpl || !opt) throw new GameError('Invalid choice.')
     opt.apply(n, this)
-    n.mods = computeMods(n.policy)
+    n.mods = computeMods(n, this.tick)
     n.issue = null
     n.nextIssue = this.tick + 45 + Math.floor(Math.random() * 45)
     return opt.label
@@ -806,6 +906,7 @@ export class Game {
       provinces: n.provinces, pop: Math.round(n.pop), gdp: r2(n.gdp), troops: r2(n.troops), gov: String(n.policy.government),
       strategy: n.brain?.strategy ?? 'player', wars: n.wars, allies: n.allies, pacts: n.pacts, embargoes: n.embargoes, sanctions: n.sanctions,
       bloc: n.tradeBloc, protectedUntil: n.protectedUntil, idx,
+      govParty: n.power?.govParty ?? '', govPartyName: n.power ? partyName(n.power, n.power.govParty) : '', nextElection: n.nextElection,
     }
   }
   privateView(n: Nation): NationPrivate {
@@ -822,7 +923,21 @@ export class Game {
       ledger: { revenue: Object.fromEntries(Object.entries(n.ledger.revenue).map(([k, v]) => [k, r2(v)])), spending: Object.fromEntries(Object.entries(n.ledger.spending).map(([k, v]) => [k, r2(v)])), net: r2(n.ledger.net) },
       sectors: { output: n.sectorOut.map(r2), jobs: n.sectorJobs.map(r2), exports: n.exports.map(r2), imports: n.imports.map(r2) },
       partners, history: recent(n.history, 120), mods: n.mods, nextElection: n.nextElection, ideology: revealedIdeology(n),
+      cond: n.cond, since: Object.fromEntries(Object.keys(n.policy).map(k => [k, r2(policyYears(n, k, this.tick))])),
+      drivers: n.drivers, modSrc: n.modSrc, risks: n.risks,
+      power: (() => { const P = n.power, cc = costCtx(this, n); return { ...P, pc: r2(P.pc), coupRisk: +(P.coupRisk * 100).toFixed(2), revoRisk: +(P.revoRisk * 100).toFixed(2), govPartyName: partyName(P, P.govParty), costMult: r2(cc.mult), base: cc.base ?? {}, electorate: blocWeights(this, n, true) } })(),
+      demo: { ...n.demo, in10: projectOld(n, 10), in20: projectOld(n, 20) },
+      fin: { credit: r2(n.fin.credit), trend: r2(n.fin.trend), crisis: n.fin.crisis, depth: n.fin.depth, cycle: n.fin.cycle, fund: r2(n.fin.fund), fx: n.fin.fx, breach: n.fin.breach, risk: n.fin.risk },
+      reserves: this.reservesLeft(n),
     }
+  }
+  reservesLeft(n: Nation) {
+    let r = 0, w = 0
+    for (const pid of this.owned(n.id)) {
+      const p = this.prov[pid], oil = p.output[SECTORS.findIndex(s => s.id === 'oil')], ore = p.output[SECTORS.findIndex(s => s.id === 'mining')]
+      r += oil * (p.res?.oil ?? 1) + ore * (p.res?.metals ?? 1); w += oil + ore
+    }
+    return w ? r2(r / w) : 1
   }
   trajectory(id: number): Trajectory | null {
     const n = this.nations.get(id)
@@ -856,7 +971,8 @@ export class Game {
     for (let i = 1; i < ids.length; i++) for (let j = 1; j < ids.length; j++) { const f = flows[i * ids.length + j]; if (f > 0.05) tr.push([ids[i], ids[j], r2(f)]) }
     tr.sort((a, b) => b[2] - a[2])
     return {
-      t: 'state', speed: 1, canSpeed: false, tick: this.tick, dayMs, market: { prices: this.prices.map(r2), oilShock: this.market.oilShock },
+      t: 'state', speed: 1, canSpeed: false, tick: this.tick, dayMs,
+      trends: { temp: r2(this.trends.temp), green: r2(this.trends.green), automation: r2(this.trends.automation), co2: r2(this.trends.co2), oilDemand: r2(this.trends.oilDemand), cleanTech: r2(this.trends.cleanTech) }, market: { prices: this.prices.map(r2), oilShock: this.market.oilShock },
       prov: { owner, pop, garrison, unrest, gdppc, top, dev, build },
       nations: [...this.nations.values()].filter(n => n.alive).map(n => this.publicView(n)),
       tradeBlocs: this.tradeBlocs, trade: tr.slice(0, 160), battles: this.battles, results: this.results, news: this.news.slice(0, 60), games: this.games,

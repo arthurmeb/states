@@ -2,7 +2,7 @@ import { reactive, shallowRef, computed } from 'vue'
 import type { ChatMsg, City, ClientMsg, CountryData, NationPublic, ProvinceDetail, ProvinceStatic, ServerMsg, StateMsg, Trajectory } from '~~/shared/types'
 
 export type MapMode = 'political' | 'diplomatic' | 'blocs' | 'terrain' | 'resources' | 'industry' | 'wealth' | 'development' | 'population' | 'unrest' | 'influence'
-export type GovSection = 'overview' | 'indices' | 'economy' | 'budget' | 'welfare' | 'society' | 'governance' | 'environment' | 'culture' | 'defense' | 'foreign' | 'territories' | 'world' | 'trajectory'
+export type GovSection = 'overview' | 'indices' | 'economy' | 'budget' | 'welfare' | 'society' | 'governance' | 'environment' | 'culture' | 'defense' | 'foreign' | 'territories' | 'world' | 'trajectory' | 'power' | 'dynamics' | 'economic'
 
 const snap = shallowRef<StateMsg | null>(null)
 const provinces = shallowRef<ProvinceStatic[]>([])
@@ -27,6 +27,8 @@ const ui = reactive({
   /** Full weekly history + decision log per nation, fetched on demand. */
   trajectories: {} as Record<number, Trajectory>,
   trajSubject: null as number | null,
+  /** open "why?" panel: a driver key (growth, inflation, pc, bloc:workers…) */
+  why: null as string | null,
   lastTickAt: 0,
   flyTo: null as { lat: number; lon: number; zoom?: number; seq: number } | null,
   details: {} as Record<number, ProvinceDetail>,

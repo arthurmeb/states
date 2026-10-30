@@ -2,6 +2,9 @@ import { join } from 'node:path'
 import type { ClientMsg, ServerMsg } from '../../shared/types'
 import { DEFAULT_MONTH_MS, DAYS_PER_MONTH } from '../../shared/rules'
 import { Game, GameError } from './world'
+import { callElection, campaign, noConfidence, spendPC, partyName } from './power'
+import { ELECTORAL, PARTY_MAP } from '../../shared/power'
+import { BLOCS, type BlocId } from '../../shared/policies'
 
 /** Real milliseconds per game month (default: one hour). Set GAME_MONTH_MS to speed up for development. */
 export const MONTH_MS = Number(process.env.GAME_MONTH_MS) || DEFAULT_MONTH_MS
@@ -90,7 +93,7 @@ export function handle(id: string, raw: string) {
       return
     }
     if (msg.t === 'found') {
-      const n = game.found(c.token, +msg.province, String(msg.name ?? ''), String(msg.leader ?? ''), String(msg.color ?? ''), String(msg.motto ?? ''))
+      const n = game.found(c.token, +msg.province, String(msg.name ?? ''), String(msg.leader ?? ''), String(msg.color ?? ''), String(msg.motto ?? ''), msg.party ? String(msg.party) : undefined)
       send(c, { t: 'toast', msg: `Long live ${n.name}!` })
       game.save()
       return broadcast(s)
@@ -102,6 +105,61 @@ export function handle(id: string, raw: string) {
       return o
     }
     const toast = (m: string) => send(c, { t: 'toast', msg: m })
+    const P = me.power
+    const pay = (cost: number, what: string) => { const err = spendPC(me, cost, what); if (err) throw new GameError(err) }
+    // ── politics: available in and out of office ──
+    switch (msg.t) {
+      case 'campaign': {
+        if (!BLOCS.some(b => b.id === msg.bloc)) throw new GameError('Unknown faction.')
+        if (!ELECTORAL.has(String(me.policy.government))) throw new GameError('There are no elections to campaign for.')
+        pay(8, 'a campaign')
+        campaign(me, msg.bloc as BlocId)
+        toast(`Campaigning among ${BLOCS.find(b => b.id === msg.bloc)?.label.toLowerCase()}`)
+        return broadcast(s)
+      }
+      case 'party': {
+        const name = String(msg.name ?? '').trim().slice(0, 40)
+        if (msg.party !== P.party) {
+          if (!PARTY_MAP[msg.party]) throw new GameError('Unknown party.')
+          pay(20, 'a change of party platform')
+          const wasGov = P.office === 'governing' && P.govParty === P.party
+          P.party = msg.party
+          if (wasGov) P.govParty = msg.party
+        }
+        P.partyName = name || PARTY_MAP[P.party].name
+        toast(`Your party: ${partyName(P, P.party)}`)
+        return broadcast(s)
+      }
+      case 'snapElection': {
+        if (P.office !== 'governing') throw new GameError('Only the government can call an election.')
+        if (!ELECTORAL.has(String(me.policy.government))) throw new GameError('Your constitution has no elections.')
+        if (game.tick - P.lastElection < 360) throw new GameError('You can call a snap election at most a year after the last one.')
+        if (me.nextElection != null && me.nextElection - game.tick < 120) throw new GameError('An election is already imminent.')
+        pay(15, 'a snap election')
+        callElection(game, me)
+        return broadcast(s)
+      }
+      case 'noConfidence': {
+        if (P.office !== 'opposition') throw new GameError('Only the opposition can table a motion of no confidence.')
+        pay(25, 'a no-confidence motion')
+        toast(noConfidence(game, me) ? 'The government falls! Elections in two months.' : 'The government survives the vote.')
+        return broadcast(s)
+      }
+      case 'purge': {
+        if (P.office !== 'governing') throw new GameError('You are not in power.')
+        pay(15, 'a purge of the officer corps')
+        P.coupShield = game.tick + 720
+        me.quality = Math.max(0.3, me.quality * 0.88)
+        me.blocs.military = Math.max(0, me.blocs.military - 10)
+        toast('The officer corps is purged. Coup-proof for two years; the army is weaker and resentful.')
+        return broadcast(s)
+      }
+    }
+    if (P.office !== 'governing' && !['respond', 'abandon'].includes(msg.t)) {
+      throw new GameError(P.office === 'exile'
+        ? 'You have been ousted by the military. You can only watch, wait and organise until the junta falls.'
+        : `You are in opposition. The ${partyName(P, P.govParty)} government runs ${me.name} until you win an election.`)
+    }
     switch (msg.t) {
       case 'policy': game.setPolicy(me, String(msg.id), msg.value); break
       case 'budget': game.setBudget(me, msg.budget ?? {}); break

@@ -1,4 +1,5 @@
 import type { BlocId } from '../../shared/policies'
+import { PARTY_MAP } from '../../shared/power'
 import { SECTOR_INDEX as S } from '../../shared/sectors'
 import { DAYS_PER_MONTH, TERRAIN } from '../../shared/rules'
 import type { Game } from './world'
@@ -16,15 +17,143 @@ const someProvince = (n: Nation, g: Game, f: (pid: number) => boolean = () => tr
   return l.length ? g.P[pick(l)].name : capital(n, g)
 }
 const share = (n: Nation, s: number) => n.sectorOut[s] / Math.max(0.001, n.gdp)
+const setPolicy = (n: Nation, id: string, v: string | number) => { n.policy[id] = v }
+const budget = (n: Nation, line: string, d: number, max = 20) => { n.budget[line] = clamp((n.budget[line] ?? 0) + d, 0, max) }
+const pc = (n: Nation, d: number) => { n.power.pc = clamp(n.power.pc + d, 0, 100) }
+const allProv = (n: Nation, g: Game, f: (p: Game['prov'][number]) => void) => { for (const pid of g.owned(n.id)) f(g.prov[pid]) }
+const electionSoon = (n: Nation, g: Game) => n.nextElection != null && n.nextElection - g.tick < 300 && n.nextElection - g.tick > 60
 
 export interface IssueTemplate {
   key: string; title: string
+  /** crises triggered by the nation's situation; they jump the queue */
+  urgent?: boolean
   when?: (n: Nation, g: Game) => boolean
   text: (n: Nation, g: Game) => string
   options: { label: string; desc: string; apply: (n: Nation, g: Game) => void }[]
 }
 
 export const ISSUES: IssueTemplate[] = [
+  // ───────── situational crises (urgent) ─────────
+  { key: 'bankcrisis', title: 'The Banks Are Failing', urgent: true, when: n => n.fin.crisis > 18,
+    text: n => `Three of ${n.name}'s largest banks cannot cover their losses after the property bubble burst. Depositors are queuing at cash machines.`,
+    options: [
+      { label: 'Bail them out', desc: '≈4% of GDP; stops the panic. Bankers keep their bonuses.', apply: n => { money(n, -0.5); n.fin.crisis = Math.max(6, n.fin.crisis - 8); blocs(n, { workers: -8, progressives: -8, business: 8 }) } },
+      { label: 'Nationalise the failing banks', desc: '≈2.5% of GDP; the state owns the banks. Corruption risk.', apply: n => { money(n, -0.3); n.fin.crisis = Math.max(8, n.fin.crisis - 5); stock(n, 'corruption', 3); blocs(n, { business: -10, workers: 6 }) } },
+      { label: 'Let them fail', desc: 'No public money. A deeper, longer slump; moral hazard cured.', apply: n => { n.fin.depth = Math.min(0.12, n.fin.depth * 1.4); n.fin.crisis += 6; setPolicy(n, 'bankingReg', 'strict'); blocs(n, { business: -14, middle: -10 }); stab(n, -4) } },
+    ] },
+  { key: 'currencyattack', title: 'Speculators at the Gates', urgent: true, when: n => n.fin.fx > 6 && String(n.policy.currency) === 'peg',
+    text: n => `Hedge funds are betting billions that ${n.name} cannot hold its currency peg. Reserves are draining by the hour.`,
+    options: [
+      { label: 'Defend the peg at any cost', desc: 'Interest rates to 20% and reserves spent. Holds if the economy can take the pain.', apply: n => { money(n, -0.4); n.interest = Math.max(n.interest, 20); stab(n, -4); if (Math.random() < 0.4) { setPolicy(n, 'currency', 'float'); n.inflation += 10 } } },
+      { label: 'Devalue and re-peg lower', desc: 'Exports cheaper, imports dearer. Inflation jumps.', apply: n => { n.inflation += 6; blocs(n, { workers: -6, business: 4 }) } },
+      { label: 'Float the currency', desc: 'Let the market decide. A sharp fall, then calm.', apply: n => { setPolicy(n, 'currency', 'float'); n.inflation += 10; n.treasury -= Math.max(0, -n.treasury) * 0.12; stab(n, -5) } },
+    ] },
+  { key: 'pensionreform', title: 'The Pension Bill Comes Due', urgent: true, when: n => n.demo.pensions > 10 && (n.idx.deficit ?? 0) < -3,
+    text: n => `Pensions now cost ${n.demo.pensions.toFixed(1)}% of GDP and rising. The finance ministry says the system cannot survive another decade unchanged.`,
+    options: [
+      { label: 'Raise the retirement age', desc: 'Retirement age → late. Unions take to the streets.', apply: n => { setPolicy(n, 'pensions', 'late'); blocs(n, { workers: -10, religious: -4 }); stab(n, -3) } },
+      { label: 'Cut benefits by a tenth', desc: 'Pensions −10% for good. Pensioners are furious.', apply: n => { n.demo.pensions *= 0.9; setPolicy(n, 'welfareModel', n.policy.welfareModel === 'generous' ? 'targeted' : n.policy.welfareModel); blocs(n, { workers: -8, religious: -8, middle: -4 }) } },
+      { label: 'Shift to funded accounts', desc: 'Pension financing → funded. Costly for a generation, sustainable after.', apply: n => { setPolicy(n, 'pensionSystem', 'funded'); blocs(n, { business: 6, workers: -5 }) } },
+      { label: 'Borrow and hope', desc: 'Kick the can down the road.', apply: n => { pc(n, 5); stock(n, 'inst', -1) } },
+    ] },
+  { key: 'youthrevolt', title: 'A Generation Without Work', urgent: true, when: n => n.demo.young > 0.28 && (n.idx.unemployment ?? 0) > 11,
+    text: (n, g) => `Young men with degrees but no jobs have occupied the main square of ${capital(n, g)}. The movement is spreading online.`,
+    options: [
+      { label: 'Public works jobs programme', desc: 'Infrastructure budget +1.5% of GDP.', apply: n => { budget(n, 'infrastructure', 1.5, 10); blocs(n, { progressives: 8, workers: 6 }) } },
+      { label: 'National service', desc: 'Conscription → universal. Soaks up idle youth.', apply: n => { setPolicy(n, 'conscription', 'universal'); blocs(n, { military: 8, progressives: -8 }) } },
+      { label: 'Disperse the square', desc: 'Order restored, anger buried.', apply: (n, g) => { stab(n, 3); blocs(n, { progressives: -16, military: 4 }); allProv(n, g, p => { p.unrest += 6 }) } },
+      { label: 'Open the doors to emigration', desc: 'Let them seek work abroad; remittances will flow home.', apply: (n, g) => { allProv(n, g, p => { p.pop *= 0.995 }); money(n, 0.1); blocs(n, { progressives: 4 }) } },
+    ] },
+  { key: 'generalstrike', title: 'General Strike', urgent: true, when: n => n.inflation > 10 && n.blocs.workers < 38,
+    text: n => `Prices have risen ${n.inflation.toFixed(0)}% this year. ${n.name}'s unions have called a general strike: trains, ports and power stations are idle.`,
+    options: [
+      { label: 'Index wages to inflation', desc: 'Workers made whole; inflation becomes sticky.', apply: n => { n.inflation += 2; blocs(n, { workers: 14, business: -8 }) } },
+      { label: 'Cap prices on essentials', desc: 'Price controls → essentials.', apply: n => { setPolicy(n, 'priceControls', 'essentials'); blocs(n, { workers: 8 }) } },
+      { label: 'Break the strike', desc: 'Emergency powers, replacement workers.', apply: n => { blocs(n, { workers: -15, business: 8, progressives: -6 }); stab(n, -5) } },
+    ] },
+  { key: 'housingbubble', title: 'Houses Cost Twelve Years of Wages', urgent: true, when: n => n.fin.credit - n.fin.trend > 10 && (n.idx.housing ?? 60) < 42,
+    text: (n, g) => `Mortgage lending is surging and the average home in ${capital(n, g)} costs twelve years of wages. Economists warn of a bubble.`,
+    options: [
+      { label: 'Tighten lending rules', desc: 'Financial regulation → strict. Prices cool; homeowners and banks complain.', apply: n => { setPolicy(n, 'bankingReg', 'strict'); blocs(n, { middle: -6, business: -6, progressives: 4 }) } },
+      { label: 'Build, build, build', desc: 'Zoning → permissive. Supply catches up over years.', apply: n => { setPolicy(n, 'zoning', 'permissive'); blocs(n, { middle: -4, progressives: 6, business: 4 }) } },
+      { label: 'Help first-time buyers', desc: 'Subsidies feed the bubble.', apply: (n, g) => { money(n, -0.15); allProv(n, g, p => { p.housing += 3 }); n.fin.credit += 4; blocs(n, { progressives: 6, middle: 4 }) } },
+    ] },
+  { key: 'automation', title: 'The Robots Are Coming', urgent: true, when: (n, g) => g.trends.automation > 0.35 && share(n, S.light) + share(n, S.auto) > 0.08,
+    text: n => `${n.name}'s biggest carmaker and two garment giants announce they will replace 200,000 workers with machines over three years.`,
+    options: [
+      { label: 'National retraining drive', desc: 'Education budget +0.8% and curriculum → STEM.', apply: n => { budget(n, 'education', 0.8, 10); setPolicy(n, 'educationFocus', 'stem'); blocs(n, { workers: 4, business: 4 }) } },
+      { label: 'Robot tax', desc: 'Corporate tax +4 points; slows automation and investment.', apply: n => { n.policy.corporateTax = Math.min(50, +n.policy.corporateTax + 4); blocs(n, { workers: 10, business: -12 }) } },
+      { label: 'Basic income pilot', desc: 'Safety net → universal basic income.', apply: n => { setPolicy(n, 'welfareModel', 'ubi'); blocs(n, { progressives: 10, business: -8 }) } },
+      { label: 'Let the market adjust', desc: 'Short-term pain, long-term productivity.', apply: n => { blocs(n, { workers: -12, business: 8 }) } },
+    ] },
+  { key: 'heatwave', title: 'The Hottest Summer Ever Recorded', urgent: true, when: n => n.cond.heat > 0.3,
+    text: (n, g) => `Temperatures above 50°C in ${someProvince(n, g)}. Crops are failing, the grid is buckling and hospitals are full.`,
+    options: [
+      { label: 'Emergency relief', desc: '≈0.3 months of GDP.', apply: n => { money(n, -0.3); stab(n, 2) } },
+      { label: 'Adapt the nation', desc: 'Climate adaptation → defences; ongoing cost.', apply: n => { setPolicy(n, 'adaptation', 'basic'); blocs(n, { progressives: 4 }) } },
+      { label: 'Demand that the polluters pay', desc: 'Diplomatic offensive; soft power, no money.', apply: n => { stock(n, 'diplomacy', 3); blocs(n, { progressives: 6 }) } },
+      { label: 'Ride it out', desc: 'Lives lost; the economy shrugs.', apply: (n, g) => { allProv(n, g, p => { p.pop *= 0.998; p.unrest += 4 }); stab(n, -4) } },
+    ] },
+  { key: 'oilbust', title: 'The Oil Money Runs Dry', urgent: true, when: (n, g) => share(n, S.oil) + share(n, S.mining) > 0.12 && g.prices[S.oil] < 0.75,
+    text: n => `Oil has fallen to a quarter-century low and ${n.name}'s budget was built on far higher prices.`,
+    options: [
+      { label: 'Austerity', desc: 'Cut welfare and subsidies by 1.5% of GDP.', apply: n => { budget(n, 'welfare', -1); budget(n, 'subsidies', -0.5); blocs(n, { workers: -10, rural: -6 }) } },
+      { label: 'Raid the wealth fund', desc: 'Draw down a third of the fund.', apply: n => { n.treasury += n.fin.fund / 3; n.fin.fund *= 2 / 3 } },
+      { label: 'Diversify for real this time', desc: 'Resource revenue → diversification fund.', apply: n => { setPolicy(n, 'swf', 'diversify'); blocs(n, { business: 6 }) } },
+      { label: 'End fuel subsidies', desc: 'Fuel prices → market. Riots likely.', apply: n => { setPolicy(n, 'fuelSubsidy', 'market') } },
+    ] },
+  { key: 'coupplot', title: 'Whispers in the Barracks', urgent: true, when: n => n.blocs.military < 32 && n.power.coupRisk > 0.006,
+    text: n => `${n.name}'s intelligence chief brings you intercepted messages: a group of colonels is sounding out the generals.`,
+    options: [
+      { label: 'Purge the officer corps', desc: 'Coup-proof for two years; the army is weakened and furious.', apply: (n, g) => { n.power.coupShield = g.tick + 720; n.quality = Math.max(0.3, n.quality * 0.85); blocs(n, { military: -6 }); stab(n, -3) } },
+      { label: 'Buy their loyalty', desc: 'Defence budget +1% of GDP and promotions.', apply: n => { budget(n, 'defense', 1, 12); blocs(n, { military: 16 }) } },
+      { label: 'Expand the security services', desc: 'Security services → expansive.', apply: n => { setPolicy(n, 'intelligence', 'expansive'); blocs(n, { military: -2, progressives: -6 }) } },
+      { label: 'Call their bluff publicly', desc: 'Rally the people behind the constitution. Risky.', apply: n => { if (Math.random() < 0.5) { stab(n, 6); blocs(n, { middle: 6, progressives: 6 }) } else blocs(n, { military: -8 }) } },
+    ] },
+  { key: 'coalition', title: 'Your Coalition Partner Threatens to Walk', urgent: true, when: n => n.power.coalition.length > 0 && n.power.office === 'governing' && n.blocs.workers + n.blocs.progressives + n.blocs.rural + n.blocs.business < 160,
+    text: n => `The leader of the ${n.power.coalition.map(c => PARTY_MAP[c]?.name ?? c).join(' and ')} says their voters are being betrayed and demands concessions within the month.`,
+    options: [
+      { label: 'Give them what they want', desc: 'A spending concession: +1% of GDP on their priorities. Their voters are happier.', apply: n => { budget(n, 'welfare', 0.5); budget(n, 'infrastructure', 0.5, 10); pc(n, -5); blocs(n, { workers: 5, rural: 5 }) } },
+      { label: 'Call their bluff', desc: 'If they leave, you may lose your majority.', apply: n => { if (Math.random() < 0.4) n.power.coalition = n.power.coalition.slice(1); else pc(n, 8) } },
+      { label: 'Call a snap election', desc: 'Let the voters settle it.', apply: (n, g) => { n.nextElection = g.tick + 60 } },
+    ] },
+  { key: 'promise', title: 'The Campaign Begins', urgent: true, when: (n, g) => electionSoon(n, g) && n.power.office === 'governing' && (n.power.votes[n.power.govParty] ?? 0) < Math.max(0, ...Object.entries(n.power.votes).filter(([k]) => k !== n.power.govParty).map(([, v]) => v)) + 6,
+    text: n => `The election is months away and the polls are tight. ${n.leader}'s strategists want a headline promise.`,
+    options: [
+      { label: 'Promise a tax cut', desc: 'Income tax −4 points now. Popular; the deficit grows.', apply: n => { n.policy.incomeTax = Math.max(0, +n.policy.incomeTax - 4); blocs(n, { middle: 8, business: 4 }) } },
+      { label: 'Promise more for health and schools', desc: 'Health and education +0.5% of GDP each.', apply: n => { budget(n, 'health', 0.5, 15); budget(n, 'education', 0.5, 10); blocs(n, { workers: 6, middle: 4 }) } },
+      { label: 'Run on your record', desc: 'No new promises. Saves money, risks the vote.', apply: n => { pc(n, 6); stock(n, 'inst', 1) } },
+      { label: 'Go negative on the opposition', desc: 'Polarising. Your base turns out; others recoil.', apply: n => { const base = Object.keys(n.power.campaign); void base; blocs(n, { religious: 4, rural: 4, progressives: -6, minorities: -6 }); stock(n, 'cohesion', -3) } },
+    ] },
+  { key: 'aiboom', title: 'The Machines Can Think', when: (n, g) => g.trends.automation > 0.3 && share(n, S.software) > 0.015,
+    text: n => `A lab in ${n.name} has built an AI system that outperforms doctors and lawyers. Ethicists, unions and investors are all at the door.`,
+    options: [
+      { label: 'Light-touch rules: race ahead', desc: '+Software, +innovation; workers anxious.', apply: (n, g) => { stock(n, 'tech', 4); g.prov[n.capital].jobs[S.software] *= 1.1; blocs(n, { business: 8, workers: -6 }) } },
+      { label: 'Strict safety regulation', desc: 'Safer, slower; trust and values soft power.', apply: n => { stock(n, 'inst', 2); blocs(n, { progressives: 6, business: -4 }) } },
+      { label: 'Nationalise the lab', desc: 'A strategic national asset.', apply: n => { stock(n, 'milTech', 4); stock(n, 'tech', 2); blocs(n, { business: -10, military: 6 }) } },
+    ] },
+  { key: 'refugeewave', title: 'Fleeing the War Next Door', when: (n, g) => g.neighboursOf(n.id).some(id => (g.nation(id)?.wars.length ?? 0) > 0),
+    text: (n, g) => `Fighting across the border has sent a column of refugees towards ${someProvince(n, g)}.`,
+    options: [
+      { label: 'Open the border', desc: '+1% population; values soft power; strain on services.', apply: (n, g) => { allProv(n, g, p => { p.pop *= 1.01 }); money(n, -0.1); stock(n, 'cohesion', -2); blocs(n, { progressives: 8, religious: -6 }) } },
+      { label: 'Camps funded by the world', desc: 'Diplomacy wins money for camps at the border.', apply: n => { stock(n, 'diplomacy', 3) } },
+      { label: 'Seal the border', desc: 'Troops to the frontier.', apply: n => { blocs(n, { religious: 8, rural: 6, progressives: -10 }); stock(n, 'diplomacy', -3) } },
+    ] },
+  { key: 'discovery', title: 'Oil in the Deep', when: (n, g) => g.owned(n.id).some(p => g.P[p].coastal) && Math.random() < 0.25,
+    text: (n, g) => `Engineers have struck a giant offshore oil field off ${someProvince(n, g, p => g.P[p].coastal)}. Bidders are already circling.`,
+    options: [
+      { label: 'Develop it with a national champion', desc: 'Reserves restored nationally; a petro-state is born.', apply: (n, g) => { allProv(n, g, p => { if (p.res) p.res.oil = Math.min(1, p.res.oil + 0.3) }); const c = g.prov[n.capital]; c.jobs[S.oil] += 8; blocs(n, { workers: 6, business: 4 }) } },
+      { label: 'Auction it to foreign majors', desc: '+0.5 months of GDP now.', apply: n => { money(n, 0.5); blocs(n, { business: 6 }) } },
+      { label: 'Leave it in the ground', desc: 'A climate pledge the world will notice.', apply: n => { stock(n, 'diplomacy', 4); blocs(n, { progressives: 10, workers: -4 }) } },
+    ] },
+  { key: 'ageingcare', title: 'Who Will Care for the Old?', when: n => n.demo.old > 0.18,
+    text: n => `${n.name} has more people over 65 than under 15. Care homes are short of 100,000 staff.`,
+    options: [
+      { label: 'Care-worker visas', desc: 'Immigration → selective at least; +migration.', apply: n => { if (n.policy.immigration === 'closed') setPolicy(n, 'immigration', 'selective'); blocs(n, { business: 4, religious: -4 }) } },
+      { label: 'Raise the health budget', desc: 'Health +1% of GDP.', apply: n => { budget(n, 'health', 1, 15); blocs(n, { workers: 4, religious: 4 }) } },
+      { label: 'Family duty', desc: 'Children must care for their parents.', apply: n => { blocs(n, { religious: 6, progressives: -8 }); stock(n, 'cohesion', 2) } },
+    ] },
+
   { key: 'dockstrike', title: 'The Docks Fall Silent', when: (n, g) => g.owned(n.id).some(p => g.P[p].coastal),
     text: (n, g) => `Dockworkers in ${someProvince(n, g, p => g.P[p].coastal)} have walked out over automation. Ships queue offshore; exporters are furious.`,
     options: [
@@ -185,22 +314,24 @@ export function worldMonth(g: Game) {
     g.prices[S.oil] = clamp(g.prices[S.oil] * (up ? 1.45 : 0.65), 0.25, 4)
     g.pushNews('market', up ? '🛢 Oil shock: crude prices surge on supply fears.' : '🛢 Oil glut: crude prices collapse as new fields come online.')
   } else if (r < 0.018) {
-    g.demandShare[S.software] *= 1.12; g.demandShare[S.electronics] *= 1.08
+    g.trends.boost[S.software] *= 1.12; g.trends.boost[S.electronics] *= 1.08; g.trends.automation = Math.min(0.95, g.trends.automation + 0.025)
     g.pushNews('market', '🤖 A breakthrough in artificial intelligence sets off a global boom in software and chips.')
   } else if (r < 0.021) {
     g.prices[S.tourism] *= 0.5
     for (const p of g.prov) p.pop *= 0.997
     g.pushNews('disaster', '🦠 A global pandemic spreads. Borders close and tourism collapses.')
   }
-  // natural disasters
-  if (Math.random() < 0.35) {
+  // natural disasters: more frequent as the planet warms
+  const warm = Math.max(0, g.trends.temp - 1.45)
+  if (Math.random() < 0.35 * (1 + warm * 2.5)) {
     const pid = Math.floor(Math.random() * g.P.length)
     const P = g.P[pid], p = g.prov[pid]
     const tropical = Math.abs(P.lat) < 28
     const kind = P.terrain === 'mountains' || (P.coastal && Math.abs(P.lon) > 120) ? 'earthquake'
       : P.coastal && tropical ? 'hurricane' : ['farmland', 'savanna', 'arid', 'plains'].includes(P.terrain) ? 'drought' : 'flood'
     if (p.pop > 300) {
-      const sev = 0.5 + Math.random()
+      const own = p.owner >= 0 ? g.nation(p.owner) : null
+      const sev = (0.5 + Math.random()) * (1 + warm) * (1 - Math.min(0.8, own?.mods.adapt ?? 0))
       p.infra = Math.max(1, p.infra - 10 * sev); p.pop *= 1 - 0.002 * sev; p.unrest = clamp(p.unrest + 12 * sev, 0, 100)
       if (kind === 'drought') p.jobs[S.agriculture] *= 0.9
       const icon = { earthquake: '🌋', hurricane: '🌀', drought: '☀', flood: '🌊' }[kind]

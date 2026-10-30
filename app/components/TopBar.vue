@@ -3,6 +3,7 @@ import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { dateOf, DAYS_PER_MONTH } from '~~/shared/rules'
 import { SECTOR_INDEX } from '~~/shared/sectors'
 import { useGame, fmtMoney, fmtPop } from '~/composables/useGame'
+import { ELECTORAL } from '~~/shared/power'
 
 const { snap, me, ui, fly, provinces, send } = useGame()
 /** Dev fast-forward: 1× live clock, 30× (month = 2 min), 360× (month = 10 s), max (~month = 2 s). */
@@ -18,6 +19,15 @@ const clock = computed(() => {
   return ms >= 3_600_000 ? `1 month = ${(ms / 3_600_000).toFixed(ms % 3_600_000 ? 1 : 0)} h` : `1 month = ${Math.max(1, Math.round(ms / 60000))} min`
 })
 const oil = computed(() => snap.value?.market.prices[SECTOR_INDEX.oil] ?? 1)
+const electoral = computed(() => !!me.value && ELECTORAL.has(String(me.value.policy.government)))
+const poll = computed(() => me.value?.power.votes[me.value.power.office === 'governing' ? me.value.power.govParty : me.value.power.party] ?? 0)
+const lead = computed(() => {
+  const P = me.value?.power
+  if (!P) return 0
+  const mine = P.office === 'governing' ? P.govParty : P.party
+  return poll.value - Math.max(0, ...Object.entries(P.votes).filter(([k]) => k !== mine && !P.coalition.includes(k)).map(([, v]) => v))
+})
+const monthsTo = computed(() => (me.value?.nextElection != null && snap.value ? Math.max(0, Math.round((me.value.nextElection - snap.value.tick) / DAYS_PER_MONTH)) : null))
 function home() { const m = me.value; const p = m && provinces.value[m.capital]; if (p) fly(p.lat, p.lon, 4) }
 </script>
 
@@ -37,12 +47,18 @@ function home() { const m = me.value; const p = m && provinces.value[m.capital];
       <div class="nation" @click="home"><span class="swatch" :style="{ background: me.color }" /><b>{{ me.name }}</b></div>
       <div class="stats">
         <div><span class="k">GDP</span><span class="mono">{{ fmtMoney(me.idx.gdp ?? 0) }}</span></div>
-        <div><span class="k">Growth</span><span class="mono" :class="(me.idx.growth ?? 0) < 0 ? 'bad' : 'good'">{{ (me.idx.growth ?? 0).toFixed(1) }}%</span></div>
+        <div class="click" @click="ui.why = 'productivity'"><span class="k">Growth</span><span class="mono" :class="(me.idx.growth ?? 0) < 0 ? 'bad' : 'good'">{{ (me.idx.growth ?? 0).toFixed(1) }}%</span></div>
         <div><span class="k">Treasury</span><span class="mono" :class="me.treasury < 0 ? 'bad' : ''">{{ fmtMoney(me.treasury) }}</span></div>
         <div><span class="k">Pop</span><span class="mono">{{ fmtPop(me.pop) }}</span></div>
-        <div><span class="k">Approval</span><span class="mono" :class="(me.idx.approval ?? 50) < 35 ? 'bad' : (me.idx.approval ?? 50) < 50 ? 'warn' : 'good'">{{ Math.round(me.idx.approval ?? 0) }}%</span></div>
+        <div class="click" @click="ui.why = 'approval'"><span class="k">Approval</span><span class="mono" :class="(me.idx.approval ?? 50) < 35 ? 'bad' : (me.idx.approval ?? 50) < 50 ? 'warn' : 'good'">{{ Math.round(me.idx.approval ?? 0) }}%</span></div>
       </div>
       <button class="btn govbtn" @click="ui.gov = ui.gov ? null : 'overview'">🏛 Government</button>
+      <div class="power-chips">
+        <button class="pchip" :class="{ low: me.power.pc < 10 }" title="Political capital: what you can spend on reform. Click for elections & power." @click="ui.gov = 'power'">⚡ <b class="mono">{{ Math.round(me.power.pc) }}</b></button>
+        <button v-if="me.power.office !== 'governing'" class="pchip bad" @click="ui.gov = 'power'">{{ me.power.office === 'exile' ? '🪖 Ousted' : '🚪 Opposition' }}</button>
+        <button v-if="electoral" class="pchip" :class="lead < 0 ? 'bad' : lead < 4 ? 'warn' : 'good'" :title="`Your party polls ${poll.toFixed(1)}% (lead ${lead.toFixed(1)}). Election in ${monthsTo} months.`" @click="ui.gov = 'power'">🗳 <b class="mono">{{ poll.toFixed(0) }}%</b><small v-if="monthsTo != null"> · {{ monthsTo }}mo</small></button>
+        <button v-else class="pchip" :class="me.power.coupRisk > 1 ? 'bad' : me.power.coupRisk > 0.3 ? 'warn' : ''" title="Chance of a military coup per year" @click="ui.gov = 'power'">🪖 <b class="mono">{{ (me.power.coupRisk * 12).toFixed(1) }}%</b></button>
+      </div>
     </template>
 
     <div class="spacer" />
@@ -77,6 +93,13 @@ function home() { const m = me.value; const p = m && provinces.value[m.capital];
 .stats > div, .market > div { display: flex; align-items: baseline; gap: 5px; white-space: nowrap; }
 .k { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
 .govbtn { border-color: rgba(255, 212, 59, .5); color: var(--accent); }
+.power-chips { display: flex; gap: 4px; }
+.pchip { background: rgba(255, 255, 255, .05); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font-size: 12px; white-space: nowrap; }
+.pchip small { color: var(--muted); font-size: 10px; }
+.pchip.low, .pchip.bad { border-color: rgba(255, 80, 80, .5); color: #ffa8a8; }
+.pchip.warn { border-color: rgba(252, 196, 25, .5); color: #ffe066; }
+.pchip.good { border-color: rgba(81, 207, 102, .4); }
+.click { cursor: pointer; }
 .spacer { flex: 1; }
 .issue { border-color: rgba(255, 212, 59, 0.6); color: var(--accent); animation: glow 2s infinite; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
 @keyframes glow { 50% { box-shadow: 0 0 14px rgba(255, 212, 59, 0.45); } }

@@ -19,10 +19,12 @@ export function nationIndices(g: Game, n: Nation) {
   const gdppc = g.gdppc(n)
   I.gdp = gdp * 12
   I.gdppc = gdppc
+  // real growth = growth of real output per person + population growth (territory changes excluded)
   const hist = n.gdpMonthly
-  const real = n.gdpReal || gdp
-  if (hist.length >= 13) I.growth = ((real / hist[hist.length - 13]) - 1) * 100
-  else if (hist.length >= 5) I.growth = (Math.pow(real / hist[0], 12 / (hist.length - 1)) - 1) * 100
+  const real = (n.gdpReal || gdp) / Math.max(1, n.pop)
+  const popG = n.demo ? (n.demo.births - n.demo.deaths + n.demo.mig) * 100 : 1
+  if (hist.length >= 13) I.growth = ((real / hist[hist.length - 13]) - 1) * 100 + popG
+  else if (hist.length >= 5) I.growth = (Math.pow(real / hist[0], 12 / (hist.length - 1)) - 1) * 100 + popG
   else I.growth = n.ref.growth ?? 2
   I.inflation = n.inflation
   I.unemployment = I.unemploymentRaw ?? n.unemployment * 100

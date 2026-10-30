@@ -4,9 +4,16 @@ import { DEMOCRATIC } from '../../shared/rules'
 import type { Game } from './world'
 import type { Nation } from './model'
 import { M } from './mods'
+import { ruleCredibility } from './finance'
+import { autoRel } from './trends'
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
 const approach = (v: number, t: number, r: number) => v + (t - v) * Math.min(1, r)
+const r2 = (x: number) => Math.round(x * 100) / 100
+/** Keep the drivers that matter, rounded. */
+export const drv = (list: [string, number][], min = 0.02) => list.filter(([, v]) => Math.abs(v) >= min).map(([k, v]) => [k, r2(v)] as [string, number])
+/** Total social spending: benefits plus (most of) pensions. */
+export const socialSpend = (n: Nation) => n.budget.welfare + (n.demo?.pensions ?? 0) * 0.85
 
 /** Aggregate provinces into national totals. */
 export function aggregate(g: Game, n: Nation) {
@@ -51,25 +58,37 @@ export function nationDay(g: Game, n: Nation, dt: number) {
   sezShare /= gdp
   // labour share ≈ 60% of GDP (effective rate ≈ 60% of top rate), taxable profits ≈ 12%, consumption ≈ 60%
   const payroll = ({ minimal: 0.04, targeted: 0.08, generous: 0.13, ubi: 0.11 } as Record<string, number>)[String(P.welfareModel)] ?? 0.08
+  const resourceRent = (n.sectorOut[S.oil] + n.sectorOut[S.mining]) * clamp(0.25 + M(mods, 'stateShare'), 0, 0.9)
+  const swf = String(P.swf)
+  // a wealth fund banks half the rents abroad and pays out 3.5% of its value a year; a diversification fund invests a third at home
+  const saved = swf === 'fund' ? resourceRent * 0.5 : 0
+  const invested = swf === 'diversify' ? resourceRent * 0.33 : 0
+  if (dt > 0 && dt < 1e5) n.fin.fund += saved * dt
   const rev = {
     income: taxBase * 0.6 * (+P.incomeTax / 100) * 0.6 * eff,
     payroll: taxBase * 0.6 * payroll * eff,
     corporate: taxBase * 0.12 * (+P.corporateTax / 100) * eff * (1 - sezShare * 0.7),
     vat: taxBase * 0.6 * (+P.vat / 100) * eff * 0.75,
     tariffs: n.tariffRevenue,
-    resources: (n.sectorOut[S.oil] + n.sectorOut[S.mining]) * clamp(0.25 + M(mods, 'stateShare'), 0, 0.9),
+    resources: resourceRent - saved - invested,
+    fund: n.fin.fund * 0.035 / 12,
     stateEnterprise: gdp * ({ statecap: 0.015, planned: 0.04 } as Record<string, number>)[String(P.economicSystem)] || 0,
     aid: n.aidReceived,
   }
   // ── spending ──
   const sp: Record<string, number> = {}
   for (const [k, pct] of Object.entries(b)) sp[k] = gdp * pct / 100
+  // mandatory: pensions for today's retirees, and programmes the law commits you to (fuel subsidies, transitions…)
+  sp.pensions = gdp * (n.demo?.pensions ?? 0) / 100
+  sp.programmes = gdp * Math.max(0, M(mods, 'spend')) / 100
   const debt = Math.max(0, -n.treasury)
   sp.interest = (debt * n.interest) / 100 / 12
   const revenue = Object.values(rev).reduce((a, x) => a + x, 0)
   const spending = Object.values(sp).reduce((a, x) => a + x, 0)
   const net = revenue - spending
   n.treasury += net * dt
+  // inflation erodes the real value of debt (and of cash): only the real interest rate bites
+  if (dt < 1e5) n.treasury *= 1 - (clamp(n.inflation, -2, 60) / 100) * (dt / 12)
   if (!isFinite(n.treasury)) n.treasury = -gdp * 12
   n.ledger = { revenue: rev, spending: sp, net }
 
@@ -103,14 +122,27 @@ export function nationDay(g: Game, n: Nation, dt: number) {
   const oilImportShare = n.imports[S.oil] / gdp
   const tariffAvg = +P.tariff
   const uPct = n.unemployment * 100
-  const inflT = 2 + M(mods, 'inflation') + monet + Math.max(0, g.prices[S.oil] - 1) * oilImportShare * 40 + tariffAvg * 0.02 + n.shortage * 8 +
-    Math.max(0, 3.5 - uPct) * 0.8 + g.sanctionPressure(n.id) * 6
+  const gap = n.fin ? n.fin.credit - n.fin.trend : 0
+  const infl: [string, number][] = [
+    ['Central bank target', 2],
+    ['Policies', M(mods, 'inflation')],
+    ['Printing money for the deficit', monet],
+    ['Oil import prices', Math.max(0, g.prices[S.oil] - 1) * oilImportShare * 40],
+    ['Tariffs', tariffAvg * 0.02],
+    ['Food shortages', n.shortage * 8],
+    ['Tight labour market', Math.max(0, 3.5 - uPct) * 0.8],
+    ['Sanctions', g.sanctionPressure(n.id) * 6],
+    ['Credit boom', clamp(gap * 0.06, -1, 2)],
+    ['Currency crisis', (n.fin?.fx ?? 0) > 0 ? 8 * Math.min(1, n.fin.fx / 6) : 0],
+  ]
+  const inflT = infl.reduce((a, [, v]) => a + v, 0)
   n.inflation = clamp(approach(n.inflation, inflT, 0.1 * dt), -3, 300)
+  n.drivers.inflation = drv(infl)
   const policyRate = cb === 'independent' ? Math.max(0.25, 2 + 1.3 * (n.inflation - 2)) : cb === 'coordinated' ? Math.max(0.5, 2 + 0.7 * (n.inflation - 2)) : 1.5
   const debtPct = (debt / (gdp * 12)) * 100
   const rating = clamp(19 - debtPct / 14 - Math.max(0, n.inflation - 8) / 2.5 + (n.stocks.inst - 50) / 8 + (n.stability - 50) / 12 - g.sanctionPressure(n.id) * 6 - (n.wars.length ? 1 : 0), 0, 19)
   n.idx.credit = rating
-  n.interest = clamp(approach(n.interest, policyRate * 0.5 + 1 + Math.max(0, (debtPct - 60) / 20) + (19 - rating) * 0.35, 0.2 * dt), 0, 30)
+  n.interest = clamp(approach(n.interest, policyRate * 0.5 + 1 + Math.max(0, (debtPct - 60) / 20) + (19 - rating) * 0.35 - ruleCredibility(n), 0.2 * dt), 0, 30)
   // sovereign default: creditors take a 60% haircut, the nation is shut out of markets
   if (debtPct > 220 && dt > 0) {
     n.treasury *= 0.4
@@ -120,8 +152,20 @@ export function nationDay(g: Game, n: Nation, dt: number) {
     n.inflation += 15
   }
   const growth = n.idx.growth ?? 2
-  const natU = clamp(n.baseU + M(mods, 'unemployment') / 100 + Math.max(0, n.inflation - 10) * 0.001 + Math.max(0, -growth) * 0.004, 0.025, 0.4)
+  const ar = autoRel(g)
+  const crisisHit = n.fin && n.fin.crisis > 0 ? n.fin.depth * Math.min(1, n.fin.crisis / 12) : 0
+  const un: [string, number][] = [
+    ['Structural rate', n.baseU * 100],
+    ['Policies', M(mods, 'unemployment') - (n.ref.unemployment ?? 0)],
+    ['Runaway inflation', Math.max(0, n.inflation - 10) * 0.1],
+    ['Recession', Math.max(0, -growth) * 0.4],
+    ['Automation', ar * (1 - n.stocks.hc / 100) * 4 * (1 - clamp(M(mods, 'retrain'), 0, 0.8))],
+    ['Banking crisis', crisisHit * 40],
+    ['Youth bulge', Math.max(0, (n.demo?.young ?? 0.25) - 0.3) * 20],
+  ]
+  const natU = clamp(un.reduce((a, [, v]) => a + v, 0) / 100, 0.025, 0.4)
   n.unemployment = approach(n.unemployment, natU, 0.1 * dt)
+  n.drivers.unemployment = drv(un)
 
   // ── slow national capital ──
   const nat = n.projectNational
@@ -137,10 +181,16 @@ export function nationDay(g: Game, n: Nation, dt: number) {
     sports: 8 + b.sports * 30 + M(mods, 'sports') + (nat.sports ?? 0) + g.gamesBonus(n.id),
     brand: 8 + hiTech * 120 + (n.sectorOut[S.finance] / gdp) * 150 + M(mods, 'brand') + (nat.brand ?? 0) + n.stocks.inst * 0.15,
     diplomacy: 8 + b.diplomacy * 20 + n.allies.length * 3 + n.pacts.length * 1.5 + M(mods, 'diplomacy') + (g.isBlocLeader(n.id) ? 8 : 0),
-    renewables: n.baseRenewables + M(mods, 'renewables') + b.environment * 4 + (nat.renewables ?? 0),
-    fertility: 1.35 + 4.5 * Math.exp(-gdppc / 5000) + M(mods, 'fertility') - ((n.idx.genderEq ?? 60) - 60) * 0.006 - (n.stocks.hc - 50) * 0.006,
+    renewables: n.baseRenewables + M(mods, 'renewables') + b.environment * 4 + (nat.renewables ?? 0) + (g.trends?.cleanTech ?? 0) * (0.4 + n.stocks.inst / 160),
+    fertility: 1.35 + 4.5 * Math.exp(-gdppc / 5000) + M(mods, 'fertility') - ((n.idx.genderEq ?? 60) - 60) * 0.006 - (n.stocks.hc - 50) * 0.006 -
+      Math.max(0, 50 - (n.idx.housing ?? 55)) * 0.008 - Math.max(0, n.unemployment * 100 - 10) * 0.01,
   }
   const rate: Record<string, number> = { tech: 0.006, inst: 0.006, corruption: 0.006, cohesion: 0.02, culture: 0.02, sports: 0.02, brand: 0.01, diplomacy: 0.02, renewables: 0.01, fertility: 0.003 }
+  if (dt < 1e5) {
+    n.drivers.corruption = drv([['Baseline', 55], ['Policies', M(mods, 'corruption')], ['Civil service capacity', -b.admin * 3], ['Institutions', -n.stocks.inst * 0.25], ['Heritage', off.corruption ?? 0]], 0.2)
+    n.drivers.institutions = drv([['Baseline', 25], ['Civil service', b.admin * 5], ['Policies', M(mods, 'institutions')], ['Low corruption', (100 - n.stocks.corruption) * 0.25], ['Democracy', DEMOCRATIC.has(String(P.government)) ? 8 : 0], ['Heritage', off.inst ?? 0]], 0.2)
+    n.drivers.fertility = drv([['Income level', 1.35 + 4.5 * Math.exp(-gdppc / 5000)], ['Policies', M(mods, 'fertility')], ['Working women', -((n.idx.genderEq ?? 60) - 60) * 0.006], ['Education', -(n.stocks.hc - 50) * 0.006], ['Housing costs', -Math.max(0, 50 - (n.idx.housing ?? 55)) * 0.008], ['Unemployment', -Math.max(0, n.unemployment * 100 - 10) * 0.01], ['Heritage', off.fertility ?? 0]], 0.01)
+  }
   for (const [k, t] of Object.entries(tgt)) {
     const key = k as keyof typeof n.stocks
     const lim = k === 'fertility' ? [0.6, 8] : [0, 100]

@@ -35,6 +35,8 @@ const STOCKS = [
 ] as const
 const RANKS = ['cnp', 'gdp', 'hdi', 'softPower', 'military', 'influence', 'happiness', 'democracy', 'competitiveness', 'innovation']
 const barColor = (v: number) => (v < 30 ? 'var(--bad)' : v < 55 ? 'var(--warn)' : 'var(--good)')
+const WHY: Record<string, string> = { growth: 'productivity', inflation: 'inflation', unemployment: 'unemployment', approval: 'approval', stability: 'stability' }
+const go = (s: string) => { ui.gov = s as typeof ui.gov }
 </script>
 
 <template>
@@ -43,9 +45,19 @@ const barColor = (v: number) => (v < 30 ? 'var(--bad)' : v < 55 ? 'var(--warn)' 
       <div v-for="(a, i) in alerts" :key="i" class="alert" :class="a.kind" @click="a.go?.()">{{ a.t }}</div>
     </div>
 
+    <div v-if="me.risks.length" class="radar">
+      <div class="section-title">🛰 Risk radar <span class="muted tiny">· pressures building up; click to act</span></div>
+      <div class="risks">
+        <div v-for="r in me.risks" :key="r.id" class="risk" :class="'l' + r.level" @click="go(r.go)">
+          <span class="ic">{{ r.icon }}</span>
+          <div><b>{{ r.title }}</b><div class="tx">{{ r.text }}</div></div>
+        </div>
+      </div>
+    </div>
+
     <div class="kpi-grid">
-      <div v-for="k in KPIS" :key="k" class="stat kpi">
-        <div class="row between"><span class="k">{{ INDEX_MAP[k].label }}</span><span class="rk muted">#{{ rankOf(me.id, k).rank }}</span></div>
+      <div v-for="k in KPIS" :key="k" class="stat kpi" :class="{ click: WHY[k] }" @click="WHY[k] && (ui.why = WHY[k])">
+        <div class="row between"><span class="k">{{ INDEX_MAP[k].label }}<span v-if="WHY[k]" class="whyl"> why?</span></span><span class="rk muted">#{{ rankOf(me.id, k).rank }}</span></div>
         <div class="v mono">{{ fmt(k, me.idx[k]) }}</div>
         <Sparkline :data="hist(k)" :color="INDEX_MAP[k].higher ? '#4dabf7' : '#ff8787'" />
       </div>
@@ -55,7 +67,7 @@ const barColor = (v: number) => (v < 30 ? 'var(--bad)' : v < 55 ? 'var(--warn)' 
       <section>
         <div class="section-title">Factions · who holds power</div>
         <div v-for="b in BLOCS" :key="b.id" class="bloc">
-          <div class="row between">
+          <div class="row between click" @click="ui.why = 'bloc:' + b.id">
             <span>{{ b.icon }} {{ b.label }} <span class="muted tiny">weight {{ Math.round((me.blocWeights[b.id] ?? 0) * 100) }}%</span></span>
             <span class="mono">{{ Math.round(me.blocs[b.id]) }}%</span>
           </div>
@@ -96,6 +108,16 @@ const barColor = (v: number) => (v < 30 ? 'var(--bad)' : v < 55 ? 'var(--warn)' 
 .alert.bad { background: rgba(255, 80, 80, 0.1); border-color: rgba(255, 80, 80, 0.35); color: #ffc9c9; }
 .alert.warn { background: rgba(252, 196, 25, 0.08); border-color: rgba(252, 196, 25, 0.35); color: #ffe8a1; }
 .alert.info { background: rgba(77, 171, 247, 0.07); border-color: rgba(77, 171, 247, 0.3); color: #c5e3fb; }
+.radar { margin-bottom: 12px; }
+.risks { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 6px; }
+.risk { display: flex; gap: 9px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); cursor: pointer; font-size: 12px; line-height: 1.4; }
+.risk:hover { border-color: var(--line-strong); }
+.risk .ic { font-size: 18px; }
+.risk .tx { color: var(--muted); font-size: 11.5px; }
+.risk.l3 { background: rgba(255, 80, 80, .09); border-color: rgba(255, 80, 80, .35); }
+.risk.l2 { background: rgba(252, 196, 25, .07); border-color: rgba(252, 196, 25, .3); }
+.click { cursor: pointer; }
+.whyl { color: #74c0fc; font-size: 9.5px; text-transform: none; letter-spacing: 0; }
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 7px; }
 .kpi .rk { font-size: 10.5px; }
 .cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }

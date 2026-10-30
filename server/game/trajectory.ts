@@ -7,6 +7,7 @@ import { SECTORS } from '../../shared/sectors'
 import type { LogEntry } from '../../shared/types'
 import { HISTORY_KEYS, type Nation } from './model'
 import type { Game } from './world'
+import { partyName } from './power'
 
 export const HISTORY_CAP = 520 // ten years of weekly samples
 const LOG_CAP = 400
@@ -21,6 +22,7 @@ export interface Tracker {
   done: string[]
   wars: number[]; allies: number[]; blocs: string[]
   provs: number
+  gov?: string; office?: string; crisis?: boolean
 }
 
 const fmtVal = (id: string, v: string | number) => {
@@ -44,6 +46,7 @@ export function snapshotOf(g: Game, n: Nation): Tracker {
   return {
     pol: { ...n.policy }, bud: { ...n.budget } as Record<string, number>, subs: [...n.subsidies], strat: n.brain?.strategy ?? 'player',
     local, done, wars: [...n.wars], allies: [...n.allies], blocs: g.tradeBlocs.filter(b => b.members.includes(n.id)).map(b => b.name), provs: owned.length,
+    gov: n.power?.govParty, office: n.power?.office, crisis: (n.fin?.crisis ?? 0) > 0,
   }
 }
 
@@ -98,6 +101,9 @@ export function trackWeek(g: Game, n: Nation) {
   for (const a of cur.allies) if (!prev.allies.includes(a)) add('diplo', `Alliance with ${name(a)}`)
   for (const b of cur.blocs) if (!prev.blocs.includes(b)) add('diplo', `Joined ${b}`)
   for (const b of prev.blocs) if (!cur.blocs.includes(b)) add('diplo', `Left ${b}`)
+  if (cur.gov && prev.gov && cur.gov !== prev.gov) add('gov', `New government: ${partyName(n.power, cur.gov)}${n.power.coalition.length ? ` (with ${n.power.coalition.map(c => partyName(n.power, c)).join(', ')})` : ''}`)
+  if (cur.office && prev.office && cur.office !== prev.office) add('gov', cur.office === 'governing' ? 'Back in power' : cur.office === 'exile' ? 'Ousted by a military coup' : 'Lost power: into opposition')
+  if (cur.crisis && !prev.crisis) add('war', 'Banking crisis')
   if (cur.provs !== prev.provs) add('territory', `Territory ${cur.provs > prev.provs ? '+' : ''}${cur.provs - prev.provs} provinces (${prev.provs} → ${cur.provs})`)
   if (n.log.length > LOG_CAP) n.log.splice(0, n.log.length - LOG_CAP)
   n.tracker = cur

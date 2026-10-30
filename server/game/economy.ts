@@ -7,6 +7,8 @@ import type { Game } from './world'
 import type { Nation, Prov } from './model'
 import { M } from './mods'
 import type { Baseline } from './data'
+import { autoRel, heatOf, coldBonus } from './trends'
+import { laborRatio, healthLoad } from './demography'
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
 const approach = (v: number, t: number, r: number) => v + (t - v) * Math.min(1, r)
@@ -31,18 +33,59 @@ export interface Ctx {
   natU: number
   energyPollution: number
   inflation: number
+  /** annual trend productivity growth (%) */
+  tfpGrowth: number
+  /** working-age share relative to founding */
+  laborRatio: number
+  /** annual population growth rate */
+  popGrowth: number
+  /** credit-cycle demand multiplier on output */
+  cycle: number
+  /** climate adaptation 0..1, and credit gap (pp of GDP) */
+  adapt: number; creditGap: number
+  /** health spending needed for the same care (older populations need more) */
+  healthLoad: number
+  urbanization: number
+  autoRel: number
+  /** policy modifiers at founding (already in the real-world data): only changes since then count */
+  refLabor: number; refProd: number
 }
+
+/** Catch-up growth potential: poorer economies with decent institutions grow faster. */
+const convergence = (gdppc: number, inst: number) => 1.6 * clamp(1 - gdppc / 60000, 0, 1) * clamp(inst / 60, 0.2, 1.2)
 
 export function statelessCtx(b: Baseline): Ctx {
   return {
     nation: null, gdppc: b.gdppc, tech: b.tech, inst: b.inst, corruption: b.corruption, freedom: b.voice, mods: {},
     spend: { infra: 2.5, edu: b.eduSpend, health: b.healthSpend * 0.6, security: 1.3, env: 0.3 }, prioNorm: 1,
     subsidies: new Set(), subsidyPct: 0, fertility: b.fertility, migration: 0, natU: b.unemployment, energyPollution: 1, inflation: b.inflation,
+    tfpGrowth: 0.8 + convergence(b.gdppc, b.inst), laborRatio: 1, popGrowth: b.popGrowth / 100, cycle: 1, adapt: 0, creditGap: 0, healthLoad: 1, urbanization: 0, autoRel: 0, refLabor: 0, refProd: 0,
   }
+}
+
+/** Why productivity grows (or doesn't): every term of a nation's trend growth, in percentage points a year. */
+export function tfpDrivers(g: Game, n: Nation): [string, number][] {
+  const mods = n.mods, c = n.cond
+  const ar = autoRel(g)
+  const drv: [string, number][] = [
+    ['Technology frontier', 0.8],
+    ['Catch-up potential', convergence(g.gdppc(n), n.stocks.inst)],
+    ['Policies', M(mods, 'growth')],
+    ['Foreign investment', M(mods, 'fdi') * 0.6],
+    ['Automation & AI', ar * (n.stocks.hc / 100) * 0.7 - ar * 0.25],
+    ['Climate damage', -c.heat * 0.6 * (1 - clamp(M(mods, 'adapt'), 0, 0.9))],
+    ['War', -0.6 * n.wars.length],
+    ['Sanctions', -1.5 * g.sanctionPressure(n.id)],
+    ['Brain drain', -Math.max(0, 42 - (n.idx.migration ?? 50)) / 42 * (n.stocks.hc / 100) * 0.5],
+    ['Entrenched corruption', -Math.max(0, n.stocks.corruption - 60) * 0.012],
+  ]
+  return drv
 }
 
 export function nationCtx(g: Game, n: Nation): Ctx {
   const b = n.budget
+  const prod = tfpDrivers(g, n)
+  n.drivers.productivity = prod.filter(([, v]) => Math.abs(v) >= 0.01).map(([k, v]) => [k, Math.round(v * 100) / 100])
   let wsum = 0, psum = 0
   for (const pid of g.owned(n.id)) { const p = g.prov[pid]; wsum += p.pop * prioMult(p); psum += p.pop }
   return {
@@ -52,6 +95,9 @@ export function nationCtx(g: Game, n: Nation): Ctx {
     subsidies: new Set(n.subsidies.map(s => S[s])), subsidyPct: b.subsidies, fertility: n.stocks.fertility ?? 2,
     migration: n.idx.migration ?? 50, natU: n.unemployment, inflation: n.inflation,
     energyPollution: { fossil: 1.4, mixed: 1, nuclear: 0.55, renewable: 0.5 }[String(n.policy.energyMix)] ?? 1,
+    tfpGrowth: prod.reduce((a, [, v]) => a + v, 0), laborRatio: laborRatio(n), popGrowth: n.demo.births - n.demo.deaths + n.demo.mig,
+    cycle: n.fin.cycle, adapt: clamp(M(n.mods, 'adapt'), 0, 0.9), creditGap: n.fin.credit - n.fin.trend, healthLoad: healthLoad(n),
+    urbanization: M(n.mods, 'urbanization'), autoRel: autoRel(g), refLabor: n.ref.laborPart ?? 0, refProd: n.ref.productivity ?? 0,
   }
 }
 
@@ -79,6 +125,13 @@ export function resMult(P: ProvinceStatic, s: number): number {
   return 1
 }
 
+/** Resource multiplier including depletion of the province's reserves. */
+export function resLeft(P: ProvinceStatic, s: number, p: Prov) {
+  const id = SECTORS[s].id
+  const r = id === 'oil' ? p.res?.oil ?? 1 : id === 'mining' ? p.res?.metals ?? 1 : 1
+  return resMult(P, s) * Math.pow(Math.max(0.02, r), 0.7)
+}
+
 /** Smooth gate: 0 below 80% of each requirement, 1 above 105%. */
 export function unlockFactor(req: SectorReq, v: { gdppc: number; hc: number; tech: number; infra: number; inst: number }) {
   let f = 1
@@ -91,7 +144,7 @@ export function unlockFactor(req: SectorReq, v: { gdppc: number; hc: number; tec
 
 function productivityR(p: Prov, ctx: Ctx, tick: number) {
   return Math.pow(0.35 + p.edu / 100, 0.9) * Math.pow(0.35 + p.infra / 100, 0.6) * Math.pow(0.45 + ctx.tech / 100, 0.7) *
-    Math.pow(0.45 + ctx.inst / 100, 0.5) * (1 + M(ctx.mods, 'productivity')) * (1 - p.unrest / 300) *
+    Math.pow(0.45 + ctx.inst / 100, 0.5) * (1 + M(ctx.mods, 'productivity') - ctx.refProd) * (1 - p.unrest / 300) *
     (p.occupiedUntil > tick ? 0.6 : 1) * (p.policy.security === 'martial' ? 0.85 : 1)
 }
 
@@ -144,8 +197,9 @@ export function targetShares(g: Game, pid: number, ctx: Ctx, gdppcLocal: number)
     let x = g.fit[pid * NS + s] * g.bias[pid * NS + s] * unlockFactor(def.req, v)
     if (!x) continue
     const price = def.tradable ? g.prices[s] : 1
-    x *= Math.pow(def.va * resMult(P, s), 0.8) * Math.pow(price / avgP, 1.6)
-    if (def.id === 'light') x *= clamp(Math.sqrt(15000 / gdppcLocal), 0.3, 2.5)
+    x *= Math.pow(def.va * resLeft(P, s, p), 0.8) * Math.pow(price / avgP, 1.6)
+    // cheap labour attracts light industry, less so as routine assembly is automated
+    if (def.id === 'light') x *= 1 + (clamp(Math.sqrt(15000 / gdppcLocal), 0.3, 2.5) - 1) * (1 - 0.7 * ctx.autoRel)
     if (def.id === 'agriculture') x *= clamp(Math.sqrt(8000 / gdppcLocal), 0.15, 3)
     if (!['agriculture', 'mining', 'oil', 'tourism', 'logistics'].includes(def.id)) x *= 0.3 + p.urban
     if (def.id === 'tourism') x *= (0.5 + (ctx.nation?.idx.softPower ?? 30) / 80) * (p.safety / 60) * (1 + M(ctx.mods, 'tourism') / 40)
@@ -246,7 +300,7 @@ export function initProvinces(g: Game) {
       if (DOMESTIC.has(SECTORS[s].id)) continue
       const want = jNonDom ? p.jobs[s] / jNonDom : 0
       const have = nonDom ? t2[s] / nonDom : 0
-      g.bias[pr.id * NS + s] = have > 0 ? clamp(want / have, 0.05, 20) : 1
+      g.bias[pr.id * NS + s] = have > 0 ? clamp(want / have, 0.003, 20) : 1
     }
     p.output = new Array(NS).fill(0)
     provinceEconomy(g, pr.id, ctx, 0)
@@ -284,9 +338,9 @@ function localTargets(g: Game, pid: number, ctx: Ctx) {
   return {
     infra: 100 * (1 - Math.exp(-r(ctx.spend.infra) / 2.5)) + lp.infra,
     edu: 100 * (1 - Math.exp(-r(ctx.spend.edu) / 3.5)) * (1 + M(ctx.mods, 'eduQuality') / 100) + lp.edu,
-    health: 100 * (1 - Math.exp(-r(ctx.spend.health) / 4.5)) * (1 + M(ctx.mods, 'health') / 100) + lp.health,
+    health: 100 * (1 - Math.exp(-r(ctx.spend.health) / 4.5 / ctx.healthLoad)) * (1 + M(ctx.mods, 'health') / 100) + lp.health,
     safety: 45 + ctx.spend.security * 8 + M(ctx.mods, 'safety') - p.unemployment * 50 - p.unrest / 4 + lp.safety + (p.policy.security === 'normal' ? 0 : 5),
-    housing: 55 + M(ctx.mods, 'housing') + lp.housing - Math.max(0, p.pop / Math.max(1, g.P[pid].area) - 0.3) * 10,
+    housing: 55 + M(ctx.mods, 'housing') + lp.housing - Math.max(0, p.pop / Math.max(1, g.P[pid].area) - 0.3) * 10 - Math.max(0, ctx.creditGap) * 0.15,
     pollution: poll + lp.pollution,
   }
 }
@@ -295,7 +349,7 @@ function localTargets(g: Game, pid: number, ctx: Ctx) {
 export function provinceEconomy(g: Game, pid: number, ctx: Ctx, dt: number) {
   const P = g.P[pid], p = g.prov[pid]
   const mods = ctx.mods
-  const L = p.pop * clamp(p.lfp + M(mods, 'laborPart'), 0.2, 0.7)
+  const L = p.pop * clamp(p.lfp * ctx.laborRatio + M(mods, 'laborPart') - ctx.refLabor, 0.15, 0.75)
   const gdppcLocal = p.pop ? Math.max(400, (p.gdp * 12e6) / p.pop) : ctx.gdppc
   // employment
   if (dt > 0) {
@@ -314,12 +368,19 @@ export function provinceEconomy(g: Game, pid: number, ctx: Ctx, dt: number) {
     const jt = p.jobs.reduce((a, x) => a + x, 0)
     const E2 = L * (1 - p.unemployment)
     if (jt > 0) for (let s = 0; s < NS; s++) p.jobs[s] *= 1 + ((E2 / jt) - 1) * Math.min(1, 0.5 * dt * 30)
-    // trend productivity growth + catch-up
-    const conv = 1.6 * clamp(1 - ctx.gdppc / 60000, 0, 1) * clamp(ctx.inst / 60, 0.2, 1.2)
-    p.tfp *= 1 + ((0.8 + conv + M(mods, 'growth') + M(mods, 'fdi') * 0.6) / 100 / 12) * dt
+    // trend productivity growth (decomposed in tfpDrivers)
+    p.tfp *= 1 + (ctx.tfpGrowth / 100 / 12) * dt
+    // reserves deplete as they are extracted
+    if (p.jobs[S.oil] > 0.01 || p.jobs[S.mining] > 0.01) {
+      p.res ??= { oil: 1, metals: 1 }
+      if (p.jobs[S.oil] > 0.01) p.res.oil = Math.max(0.02, p.res.oil - 0.018 * dt / 12)
+      if (p.jobs[S.mining] > 0.01) p.res.metals = Math.max(0.02, p.res.metals - 0.009 * dt / 12)
+    }
   }
-  // output
-  const R = productivityR(p, ctx, g.tick)
+  // output: heat stress cuts labour productivity and harvests; the north gains a little
+  const heat = heatOf(g, P) * (1 - ctx.adapt)
+  const R = productivityR(p, ctx, g.tick) * (1 - 0.06 * heat) * ctx.cycle
+  const farm = clamp(1 - 0.25 * heat + coldBonus(g, P), 0.3, 1.4)
   const boost = projectBoost(p)
   const sell = ctx.nation ? g.sell.get(ctx.nation.id) : g.sell.get(0)
   let gdp = 0
@@ -327,7 +388,7 @@ export function provinceEconomy(g: Game, pid: number, ctx: Ctx, dt: number) {
     const def = SECTORS[s]
     const price = def.tradable ? g.prices[s] : 1
     const st = def.tradable && sell ? sell[s] : 1
-    const o = p.jobs[s] * BASE_VA * def.va * p.tfp * R * resMult(P, s) * (1 + 0.3 * boost[s]) * price * st
+    const o = p.jobs[s] * BASE_VA * def.va * p.tfp * R * resLeft(P, s, p) * (1 + 0.3 * boost[s]) * price * st * (s === S.agriculture ? farm : 1)
     p.output[s] = o
     gdp += o
   }
@@ -349,10 +410,8 @@ export function provinceEconomy(g: Game, pid: number, ctx: Ctx, dt: number) {
 
   // people: births, deaths, migration, urbanisation
   const n = ctx.nation
-  const growth = n
-    ? (ctx.fertility - 2.05) * 0.011 + 0.003 + ((ctx.migration - 50) / 50) * 0.004 - (p.occupiedUntil > g.tick ? 0.01 : 0)
-    : g.base(P.iso3).popGrowth / 100
+  const growth = n ? ctx.popGrowth - (p.occupiedUntil > g.tick ? 0.01 : 0) : ctx.popGrowth
   p.pop = Math.max(1, p.pop * (1 + (growth * dt) / 12))
   const cityShare = clamp(P.cities.reduce((a, c) => a + g.cities[c].pop, 0) / Math.max(1, p.pop), 0, 1)
-  p.urban = clamp(approach(p.urban, 0.12 + 0.8 * (1 - Math.exp(-gdppcLocal / 14000)) + cityShare * 0.25, 0.003 * dt), 0.03, 0.98)
+  p.urban = clamp(approach(p.urban, 0.12 + 0.8 * (1 - Math.exp(-gdppcLocal / 14000)) + cityShare * 0.25, 0.003 * Math.max(0.2, 1 + ctx.urbanization) * dt), 0.03, 0.98)
 }

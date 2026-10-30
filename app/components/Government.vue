@@ -6,10 +6,13 @@ import { useGame, fmtMoney, fmtPop, type GovSection } from '~/composables/useGam
 const { ui, me, snap } = useGame()
 const NAV: { id: GovSection; label: string; icon: string; group?: string }[] = [
   { id: 'overview', label: 'Overview', icon: '🏛', group: 'State' },
+  { id: 'power', label: 'Power & elections', icon: '🗳' },
+  { id: 'dynamics', label: 'Long-term forces', icon: '🧬' },
   { id: 'indices', label: 'All indices', icon: '📊' },
   { id: 'trajectory', label: 'Trajectory', icon: '📈' },
   { id: 'territories', label: 'Territories', icon: '🗺' },
   { id: 'economy', label: 'Industry & markets', icon: '🏭', group: 'Economy' },
+  { id: 'economic', label: 'Economic policy', icon: '⚙' },
   { id: 'budget', label: 'Taxes & budget', icon: '💰' },
   { id: 'welfare', label: 'Welfare & services', icon: '🏥', group: 'Policy' },
   { id: 'society', label: 'Society & rights', icon: '⚖' },
@@ -59,7 +62,13 @@ const close = () => { ui.gov = null; ui.trajSubject = null }
             <button class="x" @click="close">✕</button>
           </div>
         </header>
+        <div v-if="me.power.office !== 'governing'" class="office" @click="ui.gov = 'power'">
+          {{ me.power.office === 'exile' ? '🪖 Ousted: the Military Council rules.' : `🚪 In opposition: the ${me.power.govPartyName} government is in charge.` }} You can watch, campaign and plan, but not govern. →
+        </div>
         <GovOverview v-if="section === 'overview'" />
+        <GovPower v-else-if="section === 'power'" />
+        <GovDynamics v-else-if="section === 'dynamics'" />
+        <GovPolicies v-else-if="section === 'economic'" category="economy" />
         <GovIndices v-else-if="section === 'indices'" />
         <GovTrajectory v-else-if="section === 'trajectory'" />
         <GovTerritories v-else-if="section === 'territories'" />
@@ -96,6 +105,7 @@ const close = () => { ui.gov = null; ui.trajSubject = null }
 .head { position: sticky; top: -14px; background: rgba(10, 14, 22, 0.97); padding: 8px 0; z-index: 2; margin-bottom: 6px; }
 h2 { margin: 0; font-size: 19px; }
 .x { background: none; border: 0; color: var(--muted); font-size: 18px; margin-left: 8px; }
+.office { padding: 8px 11px; border-radius: 8px; margin-bottom: 10px; font-size: 12.5px; background: rgba(252, 196, 25, .1); border: 1px solid rgba(252, 196, 25, .4); color: #ffe8a1; cursor: pointer; }
 @media (max-width: 900px) {
   .gov-veil { padding: 0; }
   .gov { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: 100dvh; border-radius: 0; }

@@ -18,7 +18,7 @@ export interface Baseline {
   unemployment: number; inflation: number; gini: number; fertility: number; lifeExp: number; homicide: number
   taxRev: number; debt: number; milSpend: number; eduSpend: number; healthSpend: number; armedForces: number
   shares: { agri: number; industry: number; manuf: number; services: number; oilRents: number; mineralRents: number; hightech: number; tourismGdp: number }
-  internet: number; genderParl: number; femaleLabor: number; exportsGdp: number; popGrowth: number; age65: number
+  internet: number; genderParl: number; femaleLabor: number; exportsGdp: number; popGrowth: number; age65: number; age014: number
   co2: number; population: number
 }
 
@@ -56,7 +56,7 @@ export function baselineOf(c: CountryData | undefined): Baseline {
       tourismGdp: clamp((v('tourism_receipts', 0) / Math.max(1, v('gdp_usd', 1e11))), 0, 0.4),
     },
     internet, genderParl: v('women_parl', 25), femaleLabor: v('female_labor', 50), exportsGdp: v('exports_gdp', 35),
-    popGrowth: v('pop_growth', 1), age65: v('age65', 10),
+    popGrowth: v('pop_growth', 1), age65: v('age65', 10), age014: v('age014', 25),
     co2: v('co2_pc', 4), population: v('population', 1e7) / 1000,
   }
 }

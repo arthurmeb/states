@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { PARTIES } from '~~/shared/power'
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { SECTORS, type SectorReq } from '~~/shared/sectors'
 import { POLICIES, POLICY_CATEGORIES, BUDGET, LOCAL_POLICIES, BLOCS, type ChoicePolicy, type SliderPolicy } from '~~/shared/policies'
@@ -9,6 +10,7 @@ import { effectChips } from '~/utils/effects'
 
 const TOC = [
   ['start', 'Quick start'], ['clock', 'Time & pacing'], ['globe', 'The globe'], ['found', 'Founding a nation'], ['government', 'The Government'],
+  ['power', 'Power & elections'], ['causality', 'Cause & effect'], ['forces', 'Long-term forces'],
   ['economy', 'Industries'], ['budget', 'Taxes, budget & debt'], ['policies', 'Policy reference'], ['provinces', 'Provinces & projects'],
   ['politics', 'Factions & stability'], ['foreign', 'Trade & foreign policy'], ['war', 'War'], ['soft', 'Soft power & the World Games'],
   ['indices', 'Index glossary'], ['strategies', 'Strategies'], ['data', 'Data & methodology'], ['faq', 'Shortcuts & FAQ'], ['dev', 'Running a server'],
@@ -146,7 +148,10 @@ const TOOLS = [
           <h2>The Government</h2>
           <p>Open it with 🏛 in the top bar or the Situation panel. Ministries:</p>
           <div class="cards">
-            <div class="card"><b>🏛 Overview</b><p>Alerts, headline indices with world ranks and trends, factions and their political weight, national capital, world standing.</p></div>
+            <div class="card"><b>🏛 Overview</b><p>The risk radar, alerts, headline indices with world ranks and trends (click for <i>why?</i>), factions and their political weight, national capital, world standing.</p></div>
+            <div class="card"><b>🗳 Power & elections</b><p>Political capital, polls, a seat projection, coalitions, the next election, campaigning, your party; in autocracies, the pillars of the regime and the risk of a coup or revolution.</p></div>
+            <div class="card"><b>🧬 Long-term forces</b><p>Your population by age now and in 10 and 20 years, pensions, the credit cycle, where your debt is heading, climate, the energy transition, automation, your reserves, and every policy's age and current effect.</p></div>
+            <div class="card"><b>⚙ Economic policy</b><p>Economic system, labour rules, minimum wage, central bank, foreign investment, capital controls, financial regulation, the exchange rate, fiscal rules, resource revenue, fuel prices, price controls, competition and land.</p></div>
             <div class="card"><b>📈 Trajectory</b><p>Weekly history of 30+ indices with every decision you (or any nation) made pinned on the chart: policies, budget lines, provincial policy, projects, wars, treaties and territory. Each decision shows what the chosen metric did over the next 6 months. Overlay a rival to compare paths.</p></div>
             <div class="card"><b>📊 All indices</b><p>All {{ INDICES.length }} indices with value, world rank, median and method. Click one for its history and world leaders.</p></div>
             <div class="card"><b>🗺 Territories</b><p>Every province in a sortable table: people, GDP, jobs, happiness, unrest, education, projects. Click to enter.</p></div>
@@ -157,6 +162,58 @@ const TOOLS = [
             <div class="card"><b>🌐 Trade & foreign policy</b><p>Every nation: trade, tariffs both ways, influence both ways, AI attitude, and every diplomatic tool.</p></div>
             <div class="card"><b>🎖 Defence</b><p>Forces, navy and air power, doctrine and conscription, wars, offensives in motion, garrisons.</p></div>
             <div class="card"><b>🌍 World & rankings</b><p>Rank all nations on any index; commodity prices; trade blocs; wars.</p></div>
+          </div>
+        </section>
+
+        <section id="power">
+          <h2>Power & elections</h2>
+          <p>Governing is not free. Every government holds <b>political capital</b> (⚡, 0–100): the goodwill, majority and authority it can spend on change. Every policy switch, tax move, budget cut and provincial decree costs some, and the price is shown on every button before you click.</p>
+          <ul>
+            <li><b>What it costs:</b> a base cost plus the backlash among the factions that lose out, weighted by how much they matter. Cutting popular programmes costs far more than raising them; raising taxes more than cutting them; repealing an entitlement more the longer people have had it. Hurting the factions your own party depends on costs extra.</li>
+            <li><b>What multiplies it:</b> a founding era (×0.3 for your first two years), a honeymoon after winning (×0.7), governing without a majority (up to ×2), and autocracy (×0.6).</li>
+            <li><b>What rebuilds it:</b> approval, legitimacy, a parliamentary majority, a honeymoon, and some policies (patronage, unlimited campaign money, a captured judiciary). Instability drains it. Press <i>why?</i> on the Power screen for the breakdown.</li>
+            <li><b>Running out:</b> in a democracy, parliament simply won't pass the change. An autocrat can rule by decree, paying the shortfall in legitimacy and stability.</li>
+          </ul>
+          <h3>Parties and elections</h3>
+          <p>Six parties compete for the factions' votes. You choose yours when you found your nation and can re-found it on a new platform later (20 ⚡):</p>
+          <div class="cards">
+            <div v-for="p in PARTIES" :key="p.id" class="card"><b>{{ p.icon }} {{ p.name }}</b><p>{{ p.pitch }}</p></div>
+          </div>
+          <ul>
+            <li>Each faction's vote depends on how it rates your government (its approval), the economy (growth, inflation, jobs), how long you have been in power (voters tire after ~4 years), any honeymoon, scandals if the press is free, and campaigning. Voters who leave you go to the party that best represents them.</li>
+            <li><b>Seats</b> follow the electoral system: proportional (coalitions are normal), first past the post (big swings, majorities from modest leads) or mixed.</li>
+            <li>Short of 50 seats, the largest party looks for like-minded partners. Coalition partners make reforms costlier, and walk out if their voters turn on you, which can force a snap election.</li>
+            <li><b>Losing.</b> If another party forms the government you go into <b>opposition</b>: they run your nation on their own platform until the next election, and you can't change policy. You can campaign among factions (8 ⚡), table a motion of no confidence when they stumble (25 ⚡), and win it back.</li>
+            <li>In government you can <b>call a snap election</b> (15 ⚡) to cash in a poll lead, and launch campaigns before a vote.</li>
+          </ul>
+          <h3>Autocracies</h3>
+          <p>No elections, but no safety either. The army, business elites and security services are the pillars of the regime. An angry army in a state with weak institutions may stage a <b>coup</b>: you are ousted into exile until the junta collapses and elections return. Mass discontent without enough repression brings <b>revolution</b>, which proclaims a democracy you then have to win votes in. Purging the officers (15 ⚡) buys two coup-proof years at the cost of a weaker, resentful army.</p>
+        </section>
+
+        <section id="causality">
+          <h2>Cause & effect</h2>
+          <p>Nothing is a free lunch, and nothing works the same everywhere. Every policy has three layers of effect:</p>
+          <ul>
+            <li><b>Headline effects</b>, the same in every country (the chips in the policy reference below).</li>
+            <li><b>Situational effects</b> that depend on your circumstances: how rich, educated, young or old, indebted, open, unequal, resource-dependent, urban, divided or well-governed you are, and the state of the world (oil prices, automation, the energy transition, climate). A living wage protects workers in a rich country and destroys formal jobs in a poor one; open immigration rescues an ageing workforce and inflames a country with mass unemployment; free markets without strong courts hand assets to oligarchs.</li>
+            <li><b>Effects that change with time</b> in force. Tariffs help infant industries for about a decade, then shelter lazy incumbents. Rent control helps tenants now and starves the housing supply for decades. State media buys stability at first; after a few years nobody believes it. Printing money boosts growth, then inflation expectations come unmoored.</li>
+          </ul>
+          <p>Repealing an entitlement causes a <b>backlash</b> that grows with how long people have had it: fuel subsidies, price caps, early retirement, generous welfare, free university, universal healthcare. The policy cards warn you before you click.</p>
+          <p>To see what is driving any number, click <b>why?</b>: on the Overview's headline cards, any faction's approval, political capital, inflation, unemployment, productivity growth, private credit, fertility, stability, legitimacy, corruption, institutions and coup risk. Each shows every force pushing it up or down, and the policies contributing most. The <b>risk radar</b> on the Overview ranks the pressures building up in your nation and links to where you can act; <b>Trajectory</b> pins every decision on the charts and shows what followed.</p>
+        </section>
+
+        <section id="forces">
+          <h2>Long-term forces</h2>
+          <p>A perfect set of policies today will not stay perfect. Your nation and the world keep changing underneath you:</p>
+          <div class="cards">
+            <div class="card"><b>👪 Ageing</b><p>Population is tracked by age. Births follow income, education, women's careers, housing costs, unemployment and family policy; people age through the groups; life expectancy sets deaths. Twenty years later the workforce shrinks, and <b>pensions</b> (paid automatically) and health costs climb. Retirement age, pension financing, immigration and family policy are the levers.</p></div>
+            <div class="card"><b>🧑 Youth bulges</b><p>A young, fast-growing population is a dividend if there are jobs, and a powder keg if there aren't: youth unemployment drives unrest and instability.</p></div>
+            <div class="card"><b>🏦 Boom and bust</b><p>Private credit grows with cheap money, light regulation, open capital accounts and optimism. Far above its trend, it inflates growth and house prices, then risks a <b>banking crisis</b>: output falls for two years, unemployment jumps, and the state pays for the bailout.</p></div>
+            <div class="card"><b>💱 Currency & debt</b><p>A currency peg imports credibility until twin deficits invite a speculative attack. Debt snowballs when interest outruns growth; inflation erodes it. A fiscal rule lowers borrowing costs, and breaking it costs credibility every month.</p></div>
+            <div class="card"><b>🌡 Climate</b><p>World emissions heat the planet. Tropical and arid provinces lose harvests and productivity, the far north gains a little, and disasters grow more frequent and severe. Adaptation, forests and the environment budget soften the blow. Your emissions hurt everyone.</p></div>
+            <div class="card"><b>☀ The energy transition</b><p>Clean technology gets cheaper every year, so the world adopts more renewables, oil demand falls and oil states see their revenues decline. Carbon border taxes start to bite on dirty exporters. Oil and mineral reserves also run down as you extract them.</p></div>
+            <div class="card"><b>🤖 Automation</b><p>Routine work is steadily automated (faster after AI breakthroughs). Skilled economies gain productivity; the cheap-labour route to industry narrows; unskilled workers lose jobs unless you retrain them. Basic income becomes more attractive as automation rises.</p></div>
+            <div class="card"><b>🧩 Crises that need you</b><p>Banking crashes, speculative attacks, pension reckonings, youth uprisings, general strikes, housing bubbles, automation layoffs, heatwaves, oil busts, coup plots and coalition revolts arrive when your situation calls for them, and they jump the queue.</p></div>
           </div>
         </section>
 
@@ -188,13 +245,13 @@ const TOOLS = [
 
         <section id="policies">
           <h2>Policy reference</h2>
-          <p>Every policy is a set of modifiers, summed every day. These are the real numbers the simulation uses.</p>
+          <p>Every policy is a set of modifiers, summed every day. Below are the <b>headline</b> effects, the same everywhere. Options marked <span class="tag">situational</span> also change with your circumstances and with how long they have been in force: open the policy in-game to see what it does in your nation right now.</p>
           <div class="seg cats"><button v-for="c in POLICY_CATEGORIES" :key="c.id" :class="{ on: policyCat === c.id }" @click="policyCat = c.id">{{ c.icon }} {{ c.label }}</button></div>
           <div v-for="p in policies" :key="p.id" class="pol">
             <div class="pol-head"><b>{{ p.label }}</b><span class="muted small">{{ p.desc }}</span></div>
             <template v-if="p.kind === 'choice'">
               <div v-for="o in (p as ChoicePolicy).options" :key="o.id" class="opt-row">
-                <div class="opt-name">{{ o.label }}<span v-if="o.id === p.default" class="tag">default</span></div>
+                <div class="opt-name">{{ o.label }}<span v-if="o.id === p.default" class="tag">default</span><span v-if="o.ctx" class="tag sit">situational</span></div>
                 <div class="chips"><span v-for="c in effectChips(o.mods, 10)" :key="c.text" class="chip" :class="c.good ? 'g' : 'b'">{{ c.text }}</span><span v-if="!Object.keys(o.mods).length" class="muted small">baseline</span></div>
               </div>
             </template>
@@ -223,8 +280,8 @@ const TOOLS = [
           <div class="chips big"><span v-for="b in BLOCS" :key="b.id" class="chip">{{ b.icon }} {{ b.label }}</span></div>
           <ul>
             <li><b>Approval</b> is the weighted average. <b>Stability</b> follows approval and legitimacy, minus war weariness, unrest, debt crises and shortages.</li>
-            <li><b>Elections</b> every four years in democracies and constitutional monarchies: lose, and the incoming coalition reverses your most unpopular policy.</li>
-            <li><b>Coups</b> happen when the military is furious and stability is low. <b>Revolutions</b> topple unpopular autocracies.</li>
+            <li><b>Elections</b> every four years in democracies and constitutional monarchies, and you can lose them: see <a @click="go('power')">Power & elections</a>.</li>
+            <li><b>Coups</b> happen when the army is furious, institutions are weak and stability is low. <b>Revolutions</b> topple unpopular autocracies.</li>
             <li><b>Unrest</b> builds in unhappy, jobless, occupied or non-core provinces. Above ~88% a province may revolt, rejoining its old homeland or forming a new state. Garrisons, police, autonomy and martial law hold it down, at a price.</li>
           </ul>
           <p class="muted small">Systems of government: {{ Object.values(GOV_LABEL).join(' · ') }}.</p>
@@ -302,6 +359,9 @@ const TOOLS = [
             <dt>Why are people unhappy?</dt><dd>Province happiness follows income, health, safety, housing, jobs, pollution, freedom and corruption. Use the city view's Overview tab and the Unrest map mode.</dd>
             <dt>Someone declared war on me!</dt><dd>Deploy reserves to the border, raise defence spending, ask allies for help, propose peace, or build bases in frontier provinces. Mountains defend well.</dd>
             <dt>What do the cabinet dilemmas do?</dt><dd>Each option changes factions, budgets, stocks or policies. Unanswered dilemmas expire and cost a little stability.</dd>
+            <dt>I lost the election. Is the game over?</dt><dd>No. Another party governs your nation on its own platform until the next election. Watch the polls on Power & elections, campaign among the factions you need, and table a motion of no confidence if the government stumbles. Win the vote and you're back with a fresh honeymoon.</dd>
+            <dt>I keep running out of political capital.</dt><dd>Spend it where it matters: raising budgets is cheap, cuts and repeals are expensive. Approval, legitimacy and a parliamentary majority rebuild it; a snap election called while you lead in the polls refills it. Small, steady reforms beat big-bang ones.</dd>
+            <dt>My policies were working, and now they aren't.</dt><dd>Your nation and the world changed. Check the risk radar and Long-term forces: an ageing population, a credit boom, the oil transition, automation or a policy that has outlived its usefulness. Click why? on anything that moved.</dd>
             <dt>Can I start over?</dt><dd>Situation panel → Dissolve nation. Your land returns to the world and you can found again.</dd>
           </dl>
         </section>
@@ -353,6 +413,7 @@ h3 { font-size: 17px; margin: 18px 0 8px; }
 .cats { flex-wrap: wrap; margin: 10px 0 14px; }
 .cats button { flex: none; padding: 6px 12px; }
 .pol { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin-bottom: 10px; background: rgba(255,255,255,.02); }
+.tag.sit { background: rgba(116, 192, 252, .16); color: #a5d8ff; margin-left: 4px; }
 .pol-head { display: flex; flex-direction: column; margin-bottom: 6px; }
 .opt-row { display: grid; grid-template-columns: 200px 1fr; gap: 10px; padding: 5px 0; border-top: 1px solid rgba(255,255,255,.05); }
 .opt-name { font-size: 13.5px; font-weight: 600; }

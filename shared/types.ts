@@ -1,5 +1,6 @@
 import type { SectorId } from './sectors'
 import type { BlocId, LocalPolicyId, Ideology } from './policies'
+import type { Cond } from './conditions'
 
 export type Terrain = 'plains' | 'farmland' | 'boreal' | 'tundra' | 'ice' | 'desert' | 'arid' | 'savanna' | 'jungle' | 'mountains'
 
@@ -58,7 +59,41 @@ export interface NationPublic {
   bloc: number | null
   protectedUntil: number
   idx: Indices
+  /** governing party, its poll share and the next election (democracies) */
+  govParty: string
+  govPartyName: string
+  nextElection: number | null
 }
+
+export interface Risk { id: string; level: 1 | 2 | 3; icon: string; title: string; text: string; go: string }
+
+export interface PowerView {
+  pc: number
+  office: 'governing' | 'opposition' | 'exile'
+  party: string; partyName: string
+  govParty: string; govPartyName: string; coalition: string[]
+  votes: Record<string, number>; seats: Record<string, number>
+  lastElection: number; terms: number; honeymoonUntil: number; since: number
+  campaign: Record<string, Partial<Record<BlocId, number>>>
+  coupRisk: number; revoRisk: number; coupShield: number
+  history: { tick: number; votes: Record<string, number>; seats: Record<string, number>; gov: string; coalition: string[] }[]
+  /** cost multiplier applied to every change right now, and the factions your coalition depends on */
+  costMult: number
+  base: Partial<Record<BlocId, number>>
+  electorate: Record<string, number>
+}
+
+export interface DemoView {
+  young: number; prime: number; mature: number; old: number
+  births: number; deaths: number; mig: number; pensions: number
+  /** projected shares in 10 and 20 years at today's birth and death rates */
+  in10: { old: number; young: number; working: number }
+  in20: { old: number; young: number; working: number }
+}
+
+export interface FinView { credit: number; trend: number; crisis: number; depth: number; cycle: number; fund: number; fx: number; breach: number; risk: number }
+
+export interface WorldTrends { temp: number; green: number; automation: number; co2: number; oilDemand: number; cleanTech: number }
 
 export interface Ledger {
   revenue: Record<string, number>
@@ -92,6 +127,17 @@ export interface NationPrivate extends NationPublic {
   mods: Record<string, number>
   nextElection: number | null
   ideology?: Record<Ideology, number>
+  cond: Cond
+  /** years each policy has held its current value */
+  since: Record<string, number>
+  drivers: Record<string, [string, number][]>
+  modSrc: Record<string, [string, number][]>
+  power: PowerView
+  demo: DemoView
+  fin: FinView
+  risks: Risk[]
+  /** reserves left (output-weighted, 0..1) */
+  reserves: number
 }
 
 export interface ProvinceDetail {
@@ -115,7 +161,7 @@ export interface ProvinceDetail {
   baseline: string
 }
 
-export interface Issue { id: string; title: string; text: string; options: { label: string; desc: string }[]; expires: number; province?: number }
+export interface Issue { id: string; title: string; text: string; options: { label: string; desc: string }[]; expires: number; province?: number; urgent?: boolean }
 
 export type ProposalKind = 'peace' | 'alliance' | 'pact' | 'bloc'
 export interface Proposal { id: number; from: number; to: number; kind: ProposalKind; tick: number; bloc?: number }
@@ -139,6 +185,7 @@ export interface StateMsg {
   t: 'state'
   tick: number
   dayMs: number
+  trends: WorldTrends
   /** Dev fast-forward multiplier; canSpeed is true when the server allows changing it. */
   speed: number
   canSpeed: boolean
@@ -160,8 +207,13 @@ export interface StateMsg {
 export type ClientMsg =
   | { t: 'hello'; token: string }
   | { t: 'trajectory'; nation: number }
+  | { t: 'snapElection' }
+  | { t: 'noConfidence' }
+  | { t: 'campaign'; bloc: BlocId }
+  | { t: 'party'; party: string; name: string }
+  | { t: 'purge' }
   | { t: 'speed'; x: number }
-  | { t: 'found'; province: number; name: string; leader: string; color: string; motto: string }
+  | { t: 'found'; province: number; name: string; leader: string; color: string; motto: string; party?: string }
   | { t: 'policy'; id: string; value: string | number }
   | { t: 'budget'; budget: Budget }
   | { t: 'subsidies'; sectors: SectorId[] }
