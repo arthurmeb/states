@@ -1,4 +1,5 @@
 import { reactive, shallowRef, computed } from 'vue'
+import type { Deal, Clause } from '~~/shared/deals'
 import type { RoomMsg, RoomView, City, ClientMsg, CountryData, NationPublic, ProvinceDetail, ProvinceStatic, ServerMsg, StateMsg, Trajectory } from '~~/shared/types'
 
 export type MapMode = 'political' | 'diplomatic' | 'blocs' | 'terrain' | 'resources' | 'industry' | 'wealth' | 'development' | 'population' | 'unrest' | 'influence'
@@ -16,6 +17,10 @@ const ui = reactive({
   msgs: {} as Record<number, RoomMsg[]>,
   comms: false,
   room: null as number | null,
+  /** treaties involving my nation, whether the server can draft free text, and the latest draft */
+  deals: [] as Deal[],
+  llm: false,
+  draft: null as { to: number; title: string; clauses: Clause[]; notes: string } | null,
   /** last time (ms) this device read each room */
   read: {} as Record<number, number>,
   toasts: [] as { id: number; msg: string; kind: 'ok' | 'err' }[],
@@ -101,6 +106,8 @@ function connect() {
       }
       case 'welcome': ui.token = msg.token; writeToken(msg.token); ui.account = msg.account; ui.msgs = {}; break
       case 'rooms': ui.rooms = msg.rooms; break
+      case 'deals': ui.deals = msg.deals; ui.llm = msg.llm; break
+      case 'dealDraft': ui.draft = { to: msg.to, title: msg.title, clauses: msg.clauses, notes: msg.notes }; break
       case 'history': ui.msgs[msg.room] = msg.msgs; break
       case 'roomMsgs': for (const m of msg.msgs) { const l = (ui.msgs[m.room] ??= []); if (!l.some(x => x.id === m.id)) l.push(m); if (ui.comms && ui.room === m.room) markRead(m.room) } break
       case 'openRoom': ui.comms = true; ui.room = msg.room; send({ t: 'history', room: msg.room }); markRead(msg.room); break

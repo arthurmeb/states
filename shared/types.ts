@@ -1,3 +1,4 @@
+import type { Deal, Clause } from './deals'
 import type { SectorId } from './sectors'
 import type { BlocId, LocalPolicyId, Ideology } from './policies'
 import type { Cond } from './conditions'
@@ -176,7 +177,7 @@ export interface ChatMsg { tick: number; from: string; color: string; text: stri
 /** A conversation: a public café thread, a DM between two nations, or a private group (incl. trade-bloc rooms). */
 export interface Room { id: number; kind: 'thread' | 'dm' | 'group'; title: string; owner: number | null; members: number[]; bloc?: number; created: number; last: number; lastTs: number; count: number; color?: string }
 export interface RoomView extends Room { preview: string }
-export interface RoomMsg { id: number; room: number; nation: string; nationId: number | null; color: string; user: string | null; text: string; tick: number; ts: number; bot?: boolean }
+export interface RoomMsg { id: number; room: number; nation: string; nationId: number | null; color: string; user: string | null; text: string; tick: number; ts: number; bot?: boolean; deal?: number }
 
 export interface TradeBloc { id: number; name: string; color: string; founder: number; members: number[]; cet: number }
 export interface GamesState { edition: number; nextTick: number; host: number | null; hostCity: string | null; bidsOpen: boolean; bids: { nation: number; amount: number }[]; lastHost: number | null; lastMedals: { nation: number; gold: number; total: number }[] }
@@ -251,6 +252,10 @@ export type ClientMsg =
   | { t: 'group'; title: string; members: number[] }
   | { t: 'groupEdit'; room: number; add: number[]; leave: boolean }
   | { t: 'history'; room: number }
+  | { t: 'dealCompile'; to: number; text: string }
+  | { t: 'dealPropose'; to: number; title: string; text: string; clauses: Record<string, unknown>[]; notes?: string }
+  | { t: 'dealRespond'; id: number; accept: boolean }
+  | { t: 'dealRenounce'; id: number }
   | { t: 'capital'; province: number }
   | { t: 'inspect'; province: number }
   | { t: 'abandon' }
@@ -263,6 +268,8 @@ export type ServerMsg =
   | { t: 'history'; room: number; msgs: RoomMsg[] }
   | { t: 'roomMsgs'; msgs: RoomMsg[] }
   | { t: 'openRoom'; room: number }
+  | { t: 'deals'; deals: Deal[]; llm: boolean }
+  | { t: 'dealDraft'; to: number; title: string; clauses: Clause[]; notes: string }
   | { t: 'account'; user: string; recovery: string }
   | { t: 'login'; token: string }
   | { t: 'error'; msg: string }

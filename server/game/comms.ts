@@ -42,6 +42,15 @@ export function roomsFor(g: Game, n: Nation | undefined): RoomView[] {
   }).sort((a, b) => b.lastTs - a.lastTs)
 }
 
+/** A deal event in the DM between two nations (created if needed). */
+export function postDealMsg(g: Game, from: Nation, to: Nation, text: string, deal: number) {
+  const r = openDM(g, from, to)
+  const m = post(g, r, from, null, text)
+  m.deal = deal
+  g.dealMsgs.push(m)
+  return m
+}
+
 function post(g: Game, r: Room, n: Nation | null, user: string | null, text: string, bot = false): RoomMsg {
   const C = g.comms
   const msg: RoomMsg = { id: C.nextMsg++, room: r.id, nation: bot ? 'World Bureau' : n?.name ?? 'Observer', nationId: n?.id ?? null, color: bot ? '#ffd43b' : n?.color ?? '#888', user: bot ? null : user, text, tick: g.tick, ts: Date.now(), bot }

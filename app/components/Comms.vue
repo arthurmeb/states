@@ -5,9 +5,9 @@ import type { RoomView } from '~~/shared/types'
 import { useGame, unread, markRead } from '~/composables/useGame'
 
 const { ui, send, me, nations } = useGame()
-type Tab = 'thread' | 'dm' | 'group'
+type Tab = 'thread' | 'dm' | 'group' | 'deals'
 const tab = ref<Tab>('thread')
-const mode = ref<'view' | 'newThread' | 'newGroup' | 'newDm' | 'invite'>('view')
+const mode = ref<'view' | 'newThread' | 'newGroup' | 'newDm' | 'invite' | 'deal'>('view')
 const text = ref(''), title = ref(''), search = ref('')
 const picked = ref<number[]>([])
 const msgsEl = ref<HTMLDivElement>()
@@ -23,7 +23,9 @@ function openRoom(r: RoomView) {
   send({ t: 'history', room: r.id })
   markRead(r.id)
 }
-watch(() => ui.room, r => { const x = ui.rooms.find(y => y.id === r); if (x) tab.value = x.kind })
+watch(() => ui.room, r => { const x = ui.rooms.find(y => y.id === r); if (x && tab.value !== 'deals') tab.value = x.kind })
+const dmOther = computed(() => (room.value?.kind === 'dm' ? room.value.members.find(id => id !== me.value?.id) ?? null : null))
+const openDeals = computed(() => ui.deals.filter(d => d.status === 'proposed' && d.b === me.value?.id).length)
 watch(() => msgs.value.length, async () => { await nextTick(); msgsEl.value?.scrollTo({ top: msgsEl.value.scrollHeight }); if (ui.room != null) markRead(ui.room) })
 function submit() {
   if (!text.value.trim() || ui.room == null) return
@@ -39,8 +41,8 @@ const when = (ts: number, tick: number) => `${new Date(ts).toLocaleString([], { 
 const memberNames = computed(() => room.value?.members.map(id => nations.value.get(id)?.name).filter(Boolean).join(', ') ?? '')
 const FILLER = /^(the|of|and|united|republic|kingdom|federation|federal|commonwealth|free|state|democratic|people's|peoples|islamic|empire|union|league|dominion|crown|confederation)$/i
 const initials = (s: string) => { const w = s.split(/\s+/).filter(x => !FILLER.test(x)); return (w.length ? w : s.split(/\s+/)).map(x => x[0]).join('').slice(0, 2).toUpperCase() }
-const NEW: Record<Tab, string> = { thread: '+ New thread', dm: '+ New message', group: '+ New group' }
-function startNew() { mode.value = tab.value === 'thread' ? 'newThread' : tab.value === 'dm' ? 'newDm' : 'newGroup'; ui.room = null; picked.value = []; search.value = '' }
+const NEW: Record<Tab, string> = { thread: '+ New thread', dm: '+ New message', group: '+ New group', deals: '+ New deal' }
+function startNew() { mode.value = tab.value === 'thread' ? 'newThread' : tab.value === 'dm' || tab.value === 'deals' ? 'newDm' : 'newGroup'; ui.room = null; picked.value = []; search.value = '' }
 </script>
 
 <template>
@@ -57,9 +59,14 @@ function startNew() { mode.value = tab.value === 'thread' ? 'newThread' : tab.va
             <button :class="{ on: tab === 'thread' }" @click="tab = 'thread'">☕ Café<i v-if="counts.thread" class="dot">{{ counts.thread }}</i></button>
             <button :class="{ on: tab === 'dm' }" @click="tab = 'dm'">✉ Direct<i v-if="counts.dm" class="dot">{{ counts.dm }}</i></button>
             <button :class="{ on: tab === 'group' }" @click="tab = 'group'">👥 Groups<i v-if="counts.group" class="dot">{{ counts.group }}</i></button>
+            <button :class="{ on: tab === 'deals' }" @click="tab = 'deals'">📜 Deals<i v-if="openDeals" class="dot">{{ openDeals }}</i></button>
           </div>
           <button class="btn block new" :disabled="!me" @click="startNew">{{ NEW[tab] }}</button>
-          <div class="list scroll">
+          <div v-if="tab === 'deals'" class="list scroll">
+            <div v-if="!ui.deals.length" class="muted small empty">No treaties yet. Open a direct conversation and press “📜 Propose a deal”.</div>
+            <DealCard v-for="d in [...ui.deals].reverse()" :id="d.id" :key="d.id" full />
+          </div>
+          <div v-else class="list scroll">
             <div v-if="!list.length" class="muted small empty">{{ tab === 'thread' ? 'No threads yet. Start the first one.' : tab === 'dm' ? 'No conversations yet. Message any nation.' : 'No groups yet. Trade blocs get a room automatically; make your own for coalitions and summits.' }}</div>
             <button v-for="r in list" :key="r.id" class="card" :class="{ on: r.id === ui.room, unread: unread(r) }" @click="openRoom(r)">
               <span class="av" :style="{ background: r.color ?? '#495057' }">{{ r.kind === 'group' ? '👥' : initials(r.kind === 'thread' ? nations.get(r.owner ?? -1)?.name ?? r.title : r.title) }}</span>
@@ -73,8 +80,9 @@ function startNew() { mode.value = tab.value === 'thread' ? 'newThread' : tab.va
         </aside>
 
         <main class="main">
+          <DealEditor v-if="mode === 'deal' && dmOther != null" :to="dmOther" @done="mode = 'view'" />
           <!-- new thread -->
-          <form v-if="mode === 'newThread'" class="form" @submit.prevent="createThread">
+          <form v-else-if="mode === 'newThread'" class="form" @submit.prevent="createThread">
             <h3>☕ New café thread</h3>
             <input v-model="title" class="field" maxlength="80" placeholder="Title: a question, a proposal, a provocation…">
             <textarea v-model="text" class="field" rows="4" maxlength="600" placeholder="Opening message (optional)" />
@@ -103,6 +111,7 @@ function startNew() { mode.value = tab.value === 'thread' ? 'newThread' : tab.va
                 <b>{{ room.title }}</b>
                 <div class="muted small">{{ room.kind === 'thread' ? `Public thread · started ${dateOf(room.created, false)}` : room.kind === 'dm' ? 'Private conversation' : memberNames }}</div>
               </div>
+              <button v-if="room.kind === 'dm'" class="btn small primary deal-btn" @click="mode = 'deal'">📜 Propose a deal</button>
               <div v-if="room.kind === 'group' && room.bloc == null" class="row">
                 <button class="btn small" @click="mode = 'invite'; picked = []; search = ''">Invite</button>
                 <button class="btn small" @click="leave">Leave</button>
@@ -115,6 +124,7 @@ function startNew() { mode.value = tab.value === 'thread' ? 'newThread' : tab.va
                 <div>
                   <div class="who"><b :style="{ color: m.color }">{{ m.nation }}</b><span v-if="m.user" class="user">@{{ m.user }}</span><span class="muted small">{{ when(m.ts, m.tick) }}</span></div>
                   <div class="txt">{{ m.text }}</div>
+                  <DealCard v-if="m.deal" :id="m.deal" />
                 </div>
               </div>
             </div>
@@ -163,7 +173,7 @@ function startNew() { mode.value = tab.value === 'thread' ? 'newThread' : tab.va
 .empty { padding: 10px 6px; line-height: 1.5; }
 .main { display: flex; flex-direction: column; min-height: 0; }
 .head { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); }
-.head .row { margin-left: auto; }
+.head .row, .head .deal-btn { margin-left: auto; }
 .back { display: none; background: none; border: 0; color: var(--muted); font-size: 22px; }
 .msgs { flex: 1; min-height: 0; padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; }
 .m { display: flex; gap: 10px; padding: 7px 8px; border-radius: 8px; }

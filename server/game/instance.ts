@@ -4,6 +4,8 @@ import { DEFAULT_MONTH_MS, DAYS_PER_MONTH } from '../../shared/rules'
 import { Game, GameError } from './world'
 import { claim, login, accountOf } from './accounts'
 import { roomsFor, canSee, createThread, openDM, createGroup, editGroup, say, history } from './comms'
+import { propose, respond, renounce, normalize, compileContext } from './deals'
+import { compileDeal, llmEnabled } from './llm'
 import type { RoomMsg } from '../../shared/types'
 import { callElection, campaign, noConfidence, spendPC, partyName } from './power'
 import { ELECTORAL, PARTY_MAP } from '../../shared/power'
@@ -26,6 +28,8 @@ const dayMs = (s: Server) => Math.max(MIN_DAY_MS, DAY_MS / s.speed)
 function loop(s: Server) {
   s.timer = setTimeout(() => {
     try { s.game.step() } catch (e) { console.error('[states] tick failed', e) }
+    // treaty events raised by the simulation (breaches, expiries, AI answers)
+    if (s.game.dealMsgs.length) { const m = s.game.dealMsgs.splice(0); pushComms(s, m); for (const c of s.clients.values()) sendDeals(s, c) }
     // at high speed, don't flood clients: at most ~4 snapshots a second
     const now = Date.now()
     if (now - s.lastBroadcast >= 250) { s.lastBroadcast = now; broadcast(s) }
@@ -56,6 +60,11 @@ export function server(): Server {
 function send(c: Client, msg: ServerMsg) { try { c.send(JSON.stringify(msg)) } catch { /* closed */ } }
 const snap = (s: Server, token: string | null) => ({ ...s.game.snapshot(token, dayMs(s)), speed: s.speed, canSpeed: isAdmin(token) })
 /** The conversations a client can see. */
+/** The deals this client's nation is part of, and whether free-text drafting is available. */
+function sendDeals(s: Server, c: Client) {
+  const n = c.token ? s.game.playerNation(c.token) : undefined
+  send(c, { t: 'deals', deals: n ? s.game.deals.list.filter(d => d.a === n.id || d.b === n.id).slice(-80) : [], llm: llmEnabled() })
+}
 function sendRooms(s: Server, c: Client) { send(c, { t: 'rooms', rooms: roomsFor(s.game, c.token ? s.game.playerNation(c.token) : undefined) }) }
 /** Deliver new messages to everyone who can read them, and refresh room lists. */
 function pushComms(s: Server, msgs: RoomMsg[]) {
@@ -91,7 +100,7 @@ export function handle(id: string, raw: string) {
       c.token = token
       game.online.add(token)
       send(c, { t: 'welcome', token, nation: game.players[token], account: accountOf(game.accounts, token) })
-      sendRooms(s, c)
+      sendRooms(s, c); sendDeals(s, c)
       send(c, snap(s, token))
       return
     }
@@ -136,6 +145,31 @@ export function handle(id: string, raw: string) {
     const me = game.playerNation(c.token)
     // ── communications (open to everyone with a nation, in or out of office) ──
     if (msg.t === 'history') { send(c, { t: 'history', room: +msg.room, msgs: history(game, me, +msg.room) }); return }
+    // ── deals & treaties (any nation may negotiate; signing binds the state, so only governments can) ──
+    if (msg.t === 'dealCompile') {
+      if (!me) throw new GameError('Found a nation first.')
+      const other = game.nation(+msg.to)
+      if (!other || other.id === me.id) throw new GameError('Unknown nation.')
+      const ctx = compileContext(game, me, other)
+      send(c, { t: 'toast', msg: '⚖ Your lawyers are drafting the treaty…' })
+      compileDeal(String(msg.text ?? ''), ctx)
+        .then(r => send(c, { t: 'dealDraft', to: other.id, title: r.title, clauses: normalize(game, me, other, r.clauses), notes: r.notes }))
+        .catch(e => send(c, { t: 'error', msg: `Drafting failed: ${(e as Error).message}` }))
+      return
+    }
+    if (msg.t === 'dealPropose' || msg.t === 'dealRespond' || msg.t === 'dealRenounce') {
+      if (!me) throw new GameError('Found a nation first.')
+      if (me.power.office !== 'governing') throw new GameError('Only a government can sign treaties.')
+      if (msg.t === 'dealPropose') {
+        const other = game.nation(+msg.to)
+        if (!other?.alive || other.id === me.id) throw new GameError('Unknown nation.')
+        propose(game, me, other, String(msg.title ?? ''), String(msg.text ?? ''), normalize(game, me, other, Array.isArray(msg.clauses) ? msg.clauses : []), String(msg.notes ?? ''))
+      } else if (msg.t === 'dealRespond') respond(game, me, +msg.id, !!msg.accept)
+      else renounce(game, me, +msg.id)
+      pushComms(s, game.dealMsgs.splice(0))
+      for (const o of s.clients.values()) sendDeals(s, o)
+      return broadcast(s)
+    }
     if (['thread', 'say', 'dm', 'group', 'groupEdit'].includes(msg.t)) {
       if (!me) throw new GameError('Found a nation to join the conversation.')
       const user = accountOf(game.accounts, c.token)

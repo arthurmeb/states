@@ -88,3 +88,19 @@ The game is one Node process (Nuxt client + Nitro WebSocket server + the simulat
 **Playing on several devices:** your nation is tied to a secret key stored in the browser. In the nation panel,
 **📱 Play on another device** copies a link that signs another browser (e.g. your phone) into the same nation.
 On a phone, use "Add to Home Screen" for a full-screen app.
+
+## Deals, treaties & the language model
+Nations negotiate in **Comms** (DMs → “📜 Propose a deal”). A deal is a list of enforceable clauses
+(`shared/deals.ts`): payments, loans, tariff caps, supply contracts, technology sharing, province transfers,
+policy commitments, non-aggression, alliances, trade pacts, aid, peace, and free-form promises. Clauses act on the
+simulation every month (`server/game/deals.ts`); breaking one is public, costs legitimacy and diplomatic standing,
+and gives the victim a just cause for war (no aggressor stigma).
+
+Players can also **write any deal in plain words**: a self-hosted model compiles it into clauses, constrained to a
+JSON schema; anything it can't express becomes a public promise. Set it up in Coolify:
+1. Add a service from the image `ollama/ollama` (name it `ollama`, volume at `/root/.ollama`, same network as STATES).
+2. Pull a model once, from the service's terminal: `ollama pull qwen2.5:7b-instruct` (8 GB RAM; use `qwen2.5:3b-instruct`
+   on 4 GB, `qwen2.5:14b-instruct` on 16 GB+).
+3. On the STATES app set `LLM_URL=http://ollama:11434/v1` and `LLM_MODEL=qwen2.5:7b-instruct`, then redeploy.
+Any OpenAI-compatible endpoint works (`LLM_KEY` for hosted APIs such as DeepSeek or Moonshot/Kimi). Without
+`LLM_URL`, players build deals clause by clause.
