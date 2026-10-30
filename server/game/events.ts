@@ -322,7 +322,7 @@ export function worldMonth(g: Game) {
     g.pushNews('disaster', '🦠 A global pandemic spreads. Borders close and tourism collapses.')
   }
   // natural disasters: more frequent as the planet warms
-  const warm = Math.max(0, g.trends.temp - 1.45)
+  const warm = Math.max(0, g.trends.temp - (g.trends.temp0 ?? 1.45))
   if (Math.random() < 0.35 * (1 + warm * 2.5)) {
     const pid = Math.floor(Math.random() * g.P.length)
     const P = g.P[pid], p = g.prov[pid]

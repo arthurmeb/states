@@ -11,12 +11,12 @@ import type { Game } from './world'
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
 
 export interface Trends {
-  /** warming since pre-industrial, °C */
-  temp: number
+  /** warming since pre-industrial, °C, and at the start of the world */
+  temp: number; temp0: number
   /** world renewable share of energy (0..1), and where it started */
   green: number; green0: number
-  /** automation of routine work (0..1) */
-  automation: number
+  /** automation of routine work (0..1), and at the start */
+  automation: number; auto0: number
   /** clean-technology cost decline: extra renewable share everyone can adopt cheaply (points) */
   cleanTech: number
   /** world emissions, Gt CO₂ per year */
@@ -27,10 +27,11 @@ export interface Trends {
   base: number[]; boost: number[]
 }
 
-export const TRENDS_2030 = (): Trends => ({ temp: 1.45, green: 0.2, green0: 0.2, automation: 0.15, cleanTech: 0, co2: 37, oilDemand: 1, base: [], boost: [] })
+/** The world in 1999: +0.75°C, little automation, clean energy still expensive. */
+export const TRENDS_START = (): Trends => ({ temp: 0.75, temp0: 0.75, green: 0.15, green0: 0.15, automation: 0.03, auto0: 0.03, cleanTech: 0, co2: 25, oilDemand: 1, base: [], boost: [] })
 export function initTrends(g: Game): Trends {
   const { green, co2 } = measure(g)
-  return { ...TRENDS_2030(), green, green0: green, co2, base: [...g.demandShare], boost: new Array(NS).fill(1) }
+  return { ...TRENDS_START(), green, green0: green, co2, base: [...g.demandShare], boost: new Array(NS).fill(1) }
 }
 
 /** World emissions (Gt/yr) and output-weighted renewable share, from every province. */
@@ -48,8 +49,8 @@ function measure(g: Game) {
   return { co2: tonnes / 1e9, green: gdpW ? renewW / gdpW / 100 : 0.2 }
 }
 
-/** Relative automation since 2030: 0 now, 1 when routine work is largely automated. */
-export const autoRel = (g: Game) => ramp(g.trends.automation, 0.15, 0.85)
+/** Relative automation since the start: 0 then, 1 when routine work is largely automated. */
+export const autoRel = (g: Game) => ramp(g.trends.automation, g.trends.auto0 ?? 0.15, 0.85)
 
 /** How exposed a province is to heat: tropical and arid land suffers most. */
 export function heatExposure(P: ProvinceStatic) {
@@ -57,10 +58,10 @@ export function heatExposure(P: ProvinceStatic) {
   const dry = P.terrain === 'desert' ? 0.4 : P.terrain === 'arid' || P.terrain === 'savanna' ? 0.3 : 0
   return clamp(tropic + dry, 0, 1)
 }
-/** Climate stress on a province from warming beyond today's (0 in 2030, ~0.8 for exposed land at +0.5°C). */
-export const heatOf = (g: Game, P: ProvinceStatic) => Math.max(0, g.trends.temp - 1.45) * 1.6 * heatExposure(P)
+/** Climate stress on a province from warming since the start (0 at first, ~0.8 for exposed land at +0.5°C). */
+export const heatOf = (g: Game, P: ProvinceStatic) => Math.max(0, g.trends.temp - (g.trends.temp0 ?? 1.45)) * 1.6 * heatExposure(P)
 /** Warming lengthens growing seasons in the cold north. */
-export const coldBonus = (g: Game, P: ProvinceStatic) => (P.terrain === 'boreal' || P.terrain === 'tundra' || Math.abs(P.lat) > 52 ? 0.3 * Math.max(0, g.trends.temp - 1.45) : 0)
+export const coldBonus = (g: Game, P: ProvinceStatic) => (P.terrain === 'boreal' || P.terrain === 'tundra' || Math.abs(P.lat) > 52 ? 0.3 * Math.max(0, g.trends.temp - (g.trends.temp0 ?? 1.45)) : 0)
 
 export function trendsMonth(g: Game) {
   const T = g.trends

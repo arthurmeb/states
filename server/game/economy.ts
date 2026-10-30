@@ -398,7 +398,7 @@ export function provinceEconomy(g: Game, pid: number, ctx: Ctx, dt: number) {
   // local stocks
   const tg = localTargets(g, pid, ctx)
   const off = pid * NOFF
-  const decay = Math.pow(0.996, dt)
+  const decay = Math.pow(0.9995, dt)
   for (const k of ['infra', 'edu', 'health', 'safety', 'housing', 'pollution'] as const) g.off[off + OFF[k]] *= decay
   p.infra = clamp(approach(p.infra, tg.infra + g.off[off], 0.012 * dt), 1, 100)
   p.edu = clamp(approach(p.edu, tg.edu + g.off[off + 1], 0.008 * dt), 1, 100)

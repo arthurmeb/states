@@ -1,5 +1,5 @@
 import { reactive, shallowRef, computed } from 'vue'
-import type { ChatMsg, City, ClientMsg, CountryData, NationPublic, ProvinceDetail, ProvinceStatic, ServerMsg, StateMsg, Trajectory } from '~~/shared/types'
+import type { RoomMsg, RoomView, City, ClientMsg, CountryData, NationPublic, ProvinceDetail, ProvinceStatic, ServerMsg, StateMsg, Trajectory } from '~~/shared/types'
 
 export type MapMode = 'political' | 'diplomatic' | 'blocs' | 'terrain' | 'resources' | 'industry' | 'wealth' | 'development' | 'population' | 'unrest' | 'influence'
 export type GovSection = 'overview' | 'indices' | 'economy' | 'budget' | 'welfare' | 'society' | 'governance' | 'environment' | 'culture' | 'defense' | 'foreign' | 'territories' | 'world' | 'trajectory' | 'power' | 'dynamics' | 'economic'
@@ -11,7 +11,13 @@ const countries = shallowRef<Record<string, CountryData>>({})
 const ui = reactive({
   connected: false,
   token: '' as string,
-  chat: [] as ChatMsg[],
+  /** communications: visible rooms, loaded message histories, the open panel and room */
+  rooms: [] as RoomView[],
+  msgs: {} as Record<number, RoomMsg[]>,
+  comms: false,
+  room: null as number | null,
+  /** last time (ms) this device read each room */
+  read: {} as Record<number, number>,
   toasts: [] as { id: number; msg: string; kind: 'ok' | 'err' }[],
   selected: null as number | null,
   inspectNation: null as number | null,
@@ -56,6 +62,14 @@ function importKey() {
 }
 export function deviceLink() { return `${location.origin}/?key=${encodeURIComponent(ui.token)}` }
 
+/** Remember what this device has read (unread badges). */
+export function markRead(room: number) {
+  ui.read[room] = Date.now()
+  try { localStorage.setItem('states-read', JSON.stringify(ui.read)) } catch { /* private mode */ }
+}
+try { Object.assign(ui.read, JSON.parse(localStorage.getItem('states-read') ?? '{}')) } catch { /* ignore */ }
+export const unread = (r: RoomView) => r.count > 0 && r.lastTs > (ui.read[r.id] ?? 0)
+
 export function toast(msg: string, kind: 'ok' | 'err' = 'ok') {
   const id = toastSeq++
   ui.toasts.push({ id, msg, kind })
@@ -85,10 +99,13 @@ function connect() {
         if (ui.selected != null && msg.prov.owner[ui.selected] !== msg.me?.id && msg.tick % 7 === 0) send({ t: 'inspect', province: ui.selected })
         break
       }
-      case 'welcome': ui.token = msg.token; writeToken(msg.token); ui.chat = msg.chat; ui.account = msg.account; break
+      case 'welcome': ui.token = msg.token; writeToken(msg.token); ui.account = msg.account; ui.msgs = {}; break
+      case 'rooms': ui.rooms = msg.rooms; break
+      case 'history': ui.msgs[msg.room] = msg.msgs; break
+      case 'roomMsgs': for (const m of msg.msgs) { const l = (ui.msgs[m.room] ??= []); if (!l.some(x => x.id === m.id)) l.push(m); if (ui.comms && ui.room === m.room) markRead(m.room) } break
+      case 'openRoom': ui.comms = true; ui.room = msg.room; send({ t: 'history', room: msg.room }); markRead(msg.room); break
       case 'account': ui.account = msg.user; ui.recovery = msg.recovery; break
       case 'login': writeToken(msg.token); location.reload(); break
-      case 'chat': ui.chat.push(msg.msg); if (ui.chat.length > 100) ui.chat.shift(); break
       case 'toast': toast(msg.msg); break
       case 'error': toast(msg.msg, 'err'); break
       case 'province': ui.details[msg.detail.id] = msg.detail; break

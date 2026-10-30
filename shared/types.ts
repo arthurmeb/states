@@ -173,6 +173,11 @@ export type NewsKind = 'war' | 'peace' | 'found' | 'capture' | 'revolt' | 'event
 export interface News { tick: number; kind: NewsKind; text: string; nations?: number[]; province?: number }
 export interface ChatMsg { tick: number; from: string; color: string; text: string }
 
+/** A conversation: a public café thread, a DM between two nations, or a private group (incl. trade-bloc rooms). */
+export interface Room { id: number; kind: 'thread' | 'dm' | 'group'; title: string; owner: number | null; members: number[]; bloc?: number; created: number; last: number; lastTs: number; count: number; color?: string }
+export interface RoomView extends Room { preview: string }
+export interface RoomMsg { id: number; room: number; nation: string; nationId: number | null; color: string; user: string | null; text: string; tick: number; ts: number; bot?: boolean }
+
 export interface TradeBloc { id: number; name: string; color: string; founder: number; members: number[]; cet: number }
 export interface GamesState { edition: number; nextTick: number; host: number | null; hostCity: string | null; bidsOpen: boolean; bids: { nation: number; amount: number }[]; lastHost: number | null; lastMedals: { nation: number; gold: number; total: number }[] }
 
@@ -240,7 +245,12 @@ export type ClientMsg =
   | { t: 'leaveBloc' }
   | { t: 'bid'; amount: number }
   | { t: 'issue'; option: number }
-  | { t: 'chat'; text: string }
+  | { t: 'thread'; title: string; text: string }
+  | { t: 'say'; room: number; text: string }
+  | { t: 'dm'; nation: number }
+  | { t: 'group'; title: string; members: number[] }
+  | { t: 'groupEdit'; room: number; add: number[]; leave: boolean }
+  | { t: 'history'; room: number }
   | { t: 'capital'; province: number }
   | { t: 'inspect'; province: number }
   | { t: 'abandon' }
@@ -248,10 +258,13 @@ export type ClientMsg =
 export type ServerMsg =
   | StateMsg
   | { t: 'trajectory'; data: Trajectory }
-  | { t: 'welcome'; token: string; nation: number | null; chat: ChatMsg[]; account: string | null }
+  | { t: 'welcome'; token: string; nation: number | null; account: string | null }
+  | { t: 'rooms'; rooms: RoomView[] }
+  | { t: 'history'; room: number; msgs: RoomMsg[] }
+  | { t: 'roomMsgs'; msgs: RoomMsg[] }
+  | { t: 'openRoom'; room: number }
   | { t: 'account'; user: string; recovery: string }
   | { t: 'login'; token: string }
   | { t: 'error'; msg: string }
   | { t: 'toast'; msg: string }
-  | { t: 'chat'; msg: ChatMsg }
   | { t: 'province'; detail: ProvinceDetail }

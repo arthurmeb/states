@@ -15,9 +15,10 @@ import { politicsDay, unrestDay, blocWeights } from './politics'
 import { computeCond } from './conditions'
 import { initDemo, demographyDay, projectOld } from './demography'
 import { initFin, financeDay, financeMonth } from './finance'
-import { initTrends, trendsMonth, TRENDS_2030, type Trends } from './trends'
+import { initTrends, trendsMonth, TRENDS_START, type Trends } from './trends'
 import { initPower, powerWeek, powerMonth, costCtx, spendPC, partyName } from './power'
 import { computeRisks } from './risks'
+import { newComms, syncBlocRooms, type Comms } from './comms'
 import type { Account } from './accounts'
 import { policyYears } from './mods'
 import { DEFAULT_COND } from '../../shared/conditions'
@@ -36,7 +37,7 @@ const r2 = (x: number) => Math.round(x * 100) / 100
 /** Last `k` samples of a history (the full series is fetched on demand via `trajectory`). */
 const recent = (h: { t: number[]; series: Record<string, number[]> }, k: number) =>
   h.t.length <= k ? h : { t: h.t.slice(-k), series: Object.fromEntries(Object.entries(h.series).map(([s, v]) => [s, v.slice(-k)])) }
-const SAVE_VERSION = 4
+const SAVE_VERSION = 5
 
 export class Game {
   P: ProvinceStatic[]
@@ -56,6 +57,7 @@ export class Game {
   results: BattleResult[] = []
   news: News[] = []
   chat: ChatMsg[] = []
+  comms: Comms = newComms()
   proposals: Proposal[] = []
   players: Record<string, number | null> = {}
   accounts: Record<string, Account> = {}
@@ -68,7 +70,7 @@ export class Game {
   influence = new Map<string, number>()
   aid = new Map<string, number>()
   tradeBlocs: TradeBloc[] = []
-  trends: Trends = TRENDS_2030()
+  trends: Trends = TRENDS_START()
   games: GamesState = { edition: 1, nextTick: 48 * DAYS_PER_MONTH, host: null, hostCity: null, bidsOpen: false, bids: [], lastHost: null, lastMedals: [] }
   gamesHosted = new Map<number, number>()
   aggressors = new Map<number, number>()
@@ -222,7 +224,7 @@ export class Game {
     for (const k of Object.keys(this.players)) this.players[k] = null
     this.nations.clear()
     Object.assign(this, {
-      tick: 0, nextId: 1, seq: 1, battles: [], results: [], news: [], chat: [], proposals: [], tradeBlocs: [], worldGdppc: 15000, avgTradablePrice: 1,
+      tick: 0, nextId: 1, seq: 1, battles: [], results: [], news: [], chat: [], comms: newComms(), proposals: [], tradeBlocs: [], worldGdppc: 15000, avgTradablePrice: 1,
       games: { edition: 1, nextTick: 48 * DAYS_PER_MONTH, host: null, hostCity: null, bidsOpen: false, bids: [], lastHost: null, lastMedals: [] },
     })
     this.prices.fill(1); this.sell.clear(); this.gamesHosted.clear(); this.aggressors.clear(); this.influence.clear(); this.aid.clear()
@@ -390,7 +392,7 @@ export class Game {
       prov: this.prov.map(p => ({ ...p, jobs: p.jobs.map(r2), output: p.output.map(x => +x.toPrecision(4)) })),
       bias: Array.from(this.bias, r2), off: Array.from(this.off, r2),
       nations: [...this.nations.values()], battles: this.battles, news: this.news, chat: this.chat, proposals: this.proposals,
-      players: this.players, accounts: this.accounts, prices: this.prices, demandShare: this.demandShare, sell: [...this.sell], tradeBlocs: this.tradeBlocs,
+      players: this.players, accounts: this.accounts, comms: this.comms, prices: this.prices, demandShare: this.demandShare, sell: [...this.sell], tradeBlocs: this.tradeBlocs,
       games: this.games, gamesHosted: [...this.gamesHosted], aggressors: [...this.aggressors], worldGdppc: this.worldGdppc, trends: this.trends,
     }
     writeFileSync(this.savePath + '.tmp', JSON.stringify(data))
@@ -403,6 +405,7 @@ export class Game {
       if (d.v !== SAVE_VERSION || d.prov.length !== this.P.length) {
         // a new world, but players keep their accounts and keys
         this.accounts = d.accounts ?? {}
+        this.comms = d.comms ?? newComms()
         for (const k of Object.keys(d.players ?? {})) this.players[k] = null
         console.log('[states] save is from an older world version: starting a fresh world (accounts kept)')
         return false
@@ -417,6 +420,7 @@ export class Game {
       this.ownedDirty = true
       this.trends = d.trends ?? initTrends(this)
       this.accounts = d.accounts ?? {}
+      this.comms = d.comms ?? newComms()
       for (const p of this.prov) p.res ??= { oil: 1, metals: 1 }
       for (const n of this.nations.values()) this.migrate(n)
       tradeWeek(this)
@@ -473,6 +477,7 @@ export class Game {
     }
     for (const n of [...this.nations.values()]) if (n.alive && n.ai && (this.tick + n.id) % 7 === 0) aiWeek(this, n)
     this.diplomacyQueue()
+    if (this.tick % 7 === 0) syncBlocRooms(this)
     if (this.tick % 7 === 0) for (const n of this.nations.values()) {
       if (!n.alive) continue
       powerWeek(this, n)

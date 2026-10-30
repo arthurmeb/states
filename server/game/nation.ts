@@ -170,7 +170,7 @@ export function nationDay(g: Game, n: Nation, dt: number) {
   // ── slow national capital ──
   const nat = n.projectNational
   const hiTech = (n.sectorOut[S.electronics] + n.sectorOut[S.pharma] + n.sectorOut[S.aerospace] + n.sectorOut[S.software]) / gdp
-  const decay = Math.pow(0.997, dt)
+  const decay = Math.pow(0.9995, dt)
   for (const k of Object.keys(off)) off[k] *= decay
   const tgt: Record<string, number> = {
     tech: 100 * (1 - Math.exp(-(b.rnd * 1.3 + n.stocks.hc / 35 + hiTech * 6 + (nat.tech ?? 0) + M(mods, 'innovation') / 10 + (n.idx.fdi ?? 40) / 50) / 5)),

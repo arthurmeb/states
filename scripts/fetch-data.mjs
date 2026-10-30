@@ -58,15 +58,18 @@ for (const c of meta[1]) {
 }
 console.log(Object.keys(countries).length, 'countries')
 
+// The world starts in TARGET_YEAR (default 1999): each indicator takes the value nearest to it
+const TARGET = Number(process.env.TARGET_YEAR ?? 1999)
 async function indicator(code, source) {
-  const url = `https://api.worldbank.org/v2/country/all/indicator/${code}?format=json&per_page=20000&date=2010:2025${source ? `&source=${source}` : ''}`
+  const url = `https://api.worldbank.org/v2/country/all/indicator/${code}?format=json&per_page=20000&date=${TARGET - 9}:${TARGET + 13}${source ? `&source=${source}` : ''}`
   const j = await getJSON(url)
   const out = {}
   for (const row of j[1] ?? []) {
     const iso = row.countryiso3code || row.country?.id
     if (!iso || !countries[iso] || row.value == null) continue
     const y = +row.date
-    if (!out[iso] || y > out[iso].y) out[iso] = { v: row.value, y }
+    // nearest year wins; on a tie prefer the earlier one (never peek further into the future than needed)
+    if (!out[iso] || Math.abs(y - TARGET) < Math.abs(out[iso].y - TARGET) || (Math.abs(y - TARGET) === Math.abs(out[iso].y - TARGET) && y < out[iso].y)) out[iso] = { v: row.value, y }
   }
   return Object.fromEntries(Object.entries(out).map(([k, o]) => [k, +(+o.v).toPrecision(5)]))
 }
@@ -86,7 +89,7 @@ for (const iso of Object.keys(countries)) {
   countries[iso].data = Object.fromEntries(Object.keys(values).filter(k => values[k][iso] != null).map(k => [k, values[k][iso]]))
 }
 
-// UNDP composite indices (HDI, gender inequality, etc.) — latest year columns
+// UNDP composite indices (HDI, gender inequality, etc.) — the year nearest TARGET
 try {
   const csv = await (await fetch('https://hdr.undp.org/sites/default/files/2023-24_HDR/HDR23-24_Composite_indices_complete_time_series.csv')).text()
   const lines = csv.split(/\r?\n/).filter(Boolean)
@@ -98,9 +101,9 @@ try {
     const iso = cells[0]
     if (!countries[iso]) continue
     for (const [k, pre] of Object.entries(wanted)) {
-      for (let y = 2023; y >= 2015; y--) {
-        const idx = head.indexOf(pre + y)
-        if (idx >= 0 && cells[idx] && !isNaN(+cells[idx])) { countries[iso].data['undp_' + k] = +cells[idx]; break }
+      for (let d = 0; d <= 12; d++) {
+        const hit = [TARGET - d, TARGET + d].map(y => head.indexOf(pre + y)).find(idx => idx >= 0 && cells[idx] && !isNaN(+cells[idx]))
+        if (hit !== undefined) { countries[iso].data['undp_' + k] = +cells[hit]; break }
       }
     }
     n++

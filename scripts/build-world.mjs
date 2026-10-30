@@ -242,13 +242,14 @@ function countryAt(lat, lon) {
 
 // Taiwan is not covered by the World Bank; public estimates (IMF WEO / DGBAS / Ministry of Education).
 countries.TWN ??= {
+  // public estimates for Taiwan in 1999 (DGBAS, CIA World Factbook, UN; GDP in constant 2021 international $)
   iso3: 'TWN', iso2: 'TW', name: 'Taiwan', region: 'East Asia & Pacific', income: 'High income', lat: 25.04, lon: 121.56, estimated: true,
-  data: { gdppc_ppp: 73300, gdp_usd: 790e9, gdp_growth: 3.5, inflation: 2.2, unemployment: 3.4, agri_va: 1.5, industry_va: 37, manuf_va: 33, services_va: 61.5,
-    exports_gdp: 65, imports_gdp: 55, hightech_exports: 60, resource_rents: 0.1, oil_rents: 0, mineral_rents: 0, tax_rev: 12, debt_gdp: 27, fdi_in: 1.5, rnd: 3.8,
-    labor_part: 59, female_labor: 51, population: 23.4e6, pop_growth: -0.2, life_exp: 80.2, fertility: 0.87, urban: 80, age65: 18, age014: 12, literacy: 98.8,
-    tertiary: 84, secondary: 99, edu_spend: 4.2, health_spend: 6.6, gini: 33.9, poverty: 0.5, child_mort: 4.4, homicide: 0.8, women_parl: 42, electricity: 100,
-    internet: 90, mobile: 125, renewables: 9, tourists: 6.4e6, mil_spend: 2.5, armed_forces: 215000, forest: 60, pm25: 15, co2_pc: 11.5,
-    voice: 85, stability: 70, effectiveness: 85, regulatory: 85, rule_of_law: 83, corruption_control: 80, undp_hdi: 0.926 } }
+  data: { gdppc_ppp: 33000, gdp_usd: 300e9, gdp_growth: 6, inflation: 0.2, unemployment: 2.9, agri_va: 2.6, industry_va: 33, manuf_va: 26, services_va: 64,
+    exports_gdp: 46, imports_gdp: 42, hightech_exports: 40, resource_rents: 0.1, oil_rents: 0, mineral_rents: 0, tax_rev: 12, debt_gdp: 30, fdi_in: 0.9, rnd: 2,
+    labor_part: 58, female_labor: 46, population: 22.0e6, pop_growth: 0.8, life_exp: 75.5, fertility: 1.56, urban: 77, age65: 8.4, age014: 21.4, literacy: 95,
+    tertiary: 50, secondary: 95, edu_spend: 4.5, health_spend: 5, gini: 32.5, poverty: 1, child_mort: 7, homicide: 1.5, women_parl: 19, electricity: 100,
+    internet: 22, mobile: 52, renewables: 4, tourists: 2.4e6, mil_spend: 2.9, armed_forces: 380000, forest: 58, pm25: 30, co2_pc: 9.5,
+    voice: 70, stability: 65, effectiveness: 75, regulatory: 75, rule_of_law: 72, corruption_control: 68, undp_hdi: 0.84 } }
 
 // Impute missing indicators: median of same region+income group → region → world.
 const KEYS = [...new Set(Object.values(countries).flatMap(c => Object.keys(c.data)))]

@@ -52,6 +52,7 @@ function declare() { if (n.value && confirm(`Declare war on ${n.value.name}? The
     </div>
     <div class="actions">
       <div class="grid2"><button class="btn" @click="locate">Locate on globe</button><button v-if="me" class="btn" @click="ui.trajSubject = n.id; ui.gov = 'trajectory'">📈 Trajectory</button></div>
+      <button v-if="me && rel !== 'self'" class="btn block" style="margin-top:6px" @click="send({ t: 'dm', nation: n.id })">✉ Message {{ n.ai ? 'their government' : 'this player' }}</button>
       <template v-if="me && rel !== 'self'">
         <div class="grid2" style="margin-top:6px">
           <template v-if="rel === 'war'"><button class="btn good" @click="send({ t: 'propose', nation: n.id, kind: 'peace' })">Propose peace</button></template>

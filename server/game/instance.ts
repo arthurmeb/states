@@ -3,6 +3,8 @@ import type { ClientMsg, ServerMsg } from '../../shared/types'
 import { DEFAULT_MONTH_MS, DAYS_PER_MONTH } from '../../shared/rules'
 import { Game, GameError } from './world'
 import { claim, login, accountOf } from './accounts'
+import { roomsFor, canSee, createThread, openDM, createGroup, editGroup, say, history } from './comms'
+import type { RoomMsg } from '../../shared/types'
 import { callElection, campaign, noConfidence, spendPC, partyName } from './power'
 import { ELECTORAL, PARTY_MAP } from '../../shared/power'
 import { BLOCS, type BlocId } from '../../shared/policies'
@@ -11,7 +13,7 @@ import { BLOCS, type BlocId } from '../../shared/policies'
 export const MONTH_MS = Number(process.env.GAME_MONTH_MS) || DEFAULT_MONTH_MS
 export const DAY_MS = MONTH_MS / DAYS_PER_MONTH
 
-interface Client { send: (data: string) => void; token: string | null; fails?: number[] }
+interface Client { send: (data: string) => void; token: string | null; fails?: number[]; said?: number[] }
 interface Server { game: Game; clients: Map<string, Client>; timer?: ReturnType<typeof setTimeout>; speed: number; lastBroadcast: number }
 /** Admin accounts (fast-forward, world reset). Comma-separated usernames; defaults to Century. */
 const ADMINS = new Set((process.env.STATES_ADMINS ?? 'century').split(',').map(s => s.trim().toLowerCase()).filter(Boolean))
@@ -53,6 +55,18 @@ export function server(): Server {
 
 function send(c: Client, msg: ServerMsg) { try { c.send(JSON.stringify(msg)) } catch { /* closed */ } }
 const snap = (s: Server, token: string | null) => ({ ...s.game.snapshot(token, dayMs(s)), speed: s.speed, canSpeed: isAdmin(token) })
+/** The conversations a client can see. */
+function sendRooms(s: Server, c: Client) { send(c, { t: 'rooms', rooms: roomsFor(s.game, c.token ? s.game.playerNation(c.token) : undefined) }) }
+/** Deliver new messages to everyone who can read them, and refresh room lists. */
+function pushComms(s: Server, msgs: RoomMsg[]) {
+  for (const o of s.clients.values()) {
+    const n = o.token ? s.game.playerNation(o.token) : undefined
+    const mine = msgs.filter(m => { const r = s.game.comms.rooms.find(x => x.id === m.room); return r && canSee(s.game, r, n) })
+    if (mine.length) send(o, { t: 'roomMsgs', msgs: mine })
+    sendRooms(s, o)
+  }
+}
+
 export function broadcast(s: Server) { for (const c of s.clients.values()) send(c, snap(s, c.token)) }
 export function connect(id: string, sendFn: (d: string) => void) { server().clients.set(id, { send: sendFn, token: null }) }
 export function disconnect(id: string) {
@@ -76,7 +90,8 @@ export function handle(id: string, raw: string) {
       if (!(token in game.players)) game.players[token] = null
       c.token = token
       game.online.add(token)
-      send(c, { t: 'welcome', token, nation: game.players[token], chat: game.chat, account: accountOf(game.accounts, token) })
+      send(c, { t: 'welcome', token, nation: game.players[token], account: accountOf(game.accounts, token) })
+      sendRooms(s, c)
       send(c, snap(s, token))
       return
     }
@@ -110,7 +125,7 @@ export function handle(id: string, raw: string) {
       if (!isAdmin(c.token)) throw new GameError('Only the admin can reset the world.')
       setSpeed(1)
       game.resetWorld()
-      for (const o of s.clients.values()) if (o.token) send(o, { t: 'welcome', token: o.token, nation: null, chat: [], account: accountOf(game.accounts, o.token) })
+      for (const o of s.clients.values()) if (o.token) { send(o, { t: 'welcome', token: o.token, nation: null, account: accountOf(game.accounts, o.token) }); sendRooms(s, o) }
       console.log('[states] world reset by admin')
       return broadcast(s)
     }
@@ -119,9 +134,23 @@ export function handle(id: string, raw: string) {
       return
     }
     const me = game.playerNation(c.token)
-    if (msg.t === 'chat') {
-      const m = game.addChat(me, String(msg.text ?? ''))
-      if (m) for (const o of s.clients.values()) send(o, { t: 'chat', msg: m })
+    // ── communications (open to everyone with a nation, in or out of office) ──
+    if (msg.t === 'history') { send(c, { t: 'history', room: +msg.room, msgs: history(game, me, +msg.room) }); return }
+    if (['thread', 'say', 'dm', 'group', 'groupEdit'].includes(msg.t)) {
+      if (!me) throw new GameError('Found a nation to join the conversation.')
+      const user = accountOf(game.accounts, c.token)
+      const now = Date.now()
+      c.said = (c.said ?? []).filter(t => now - t < 10_000)
+      if (c.said.length >= 6) throw new GameError('Slow down a little.')
+      c.said.push(now)
+      let open: number | null = null, msgs: RoomMsg[] = []
+      if (msg.t === 'thread') { const r = createThread(game, me, user, String(msg.title ?? ''), String(msg.text ?? '')); open = r.room.id; msgs = r.msgs }
+      else if (msg.t === 'say') msgs = say(game, me, user, +msg.room, String(msg.text ?? ''))
+      else if (msg.t === 'dm') { const o = game.nation(+msg.nation); if (!o) throw new GameError('Unknown nation.'); open = openDM(game, me, o).id }
+      else if (msg.t === 'group') open = createGroup(game, me, String(msg.title ?? ''), Array.isArray(msg.members) ? msg.members.map(Number) : []).id
+      else if (msg.t === 'groupEdit') editGroup(game, me, +msg.room, Array.isArray(msg.add) ? msg.add.map(Number) : [], !!msg.leave)
+      pushComms(s, msgs)
+      if (open != null) send(c, { t: 'openRoom', room: open })
       return
     }
     if (msg.t === 'found') {
