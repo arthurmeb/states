@@ -13,8 +13,11 @@ export const DAY_MS = MONTH_MS / DAYS_PER_MONTH
 
 interface Client { send: (data: string) => void; token: string | null; fails?: number[] }
 interface Server { game: Game; clients: Map<string, Client>; timer?: ReturnType<typeof setTimeout>; speed: number; lastBroadcast: number }
-/** Fast-forward is a development tool: on in `nuxt dev`, or in production with STATES_ALLOW_SPEED=1. */
-export const CAN_SPEED = process.env.NODE_ENV !== 'production' || process.env.STATES_ALLOW_SPEED === '1'
+/** Admin accounts (fast-forward, world reset). Comma-separated usernames; defaults to Century. */
+const ADMINS = new Set((process.env.STATES_ADMINS ?? 'century').split(',').map(s => s.trim().toLowerCase()).filter(Boolean))
+const DEV = process.env.NODE_ENV !== 'production'
+/** Admin controls belong to the admin accounts (and anyone on a local dev server). */
+export const isAdmin = (token: string | null) => DEV || ADMINS.has((accountOf(server().game.accounts, token) ?? '').toLowerCase())
 const MIN_DAY_MS = 60 // the simulation needs ~40 ms per day
 const dayMs = (s: Server) => Math.max(MIN_DAY_MS, DAY_MS / s.speed)
 
@@ -29,7 +32,6 @@ function loop(s: Server) {
 }
 export function setSpeed(x: number) {
   const s = server()
-  if (!CAN_SPEED) throw new GameError('Fast-forward is disabled on this server.')
   s.speed = Math.max(1, Math.min(2000, Math.round(x)))
   clearTimeout(s.timer); loop(s); broadcast(s)
   console.log(`[states] speed ×${s.speed}`)
@@ -50,7 +52,7 @@ export function server(): Server {
 }
 
 function send(c: Client, msg: ServerMsg) { try { c.send(JSON.stringify(msg)) } catch { /* closed */ } }
-const snap = (s: Server, token: string | null) => ({ ...s.game.snapshot(token, dayMs(s)), speed: s.speed, canSpeed: CAN_SPEED })
+const snap = (s: Server, token: string | null) => ({ ...s.game.snapshot(token, dayMs(s)), speed: s.speed, canSpeed: isAdmin(token) })
 export function broadcast(s: Server) { for (const c of s.clients.values()) send(c, snap(s, c.token)) }
 export function connect(id: string, sendFn: (d: string) => void) { server().clients.set(id, { send: sendFn, token: null }) }
 export function disconnect(id: string) {
@@ -90,7 +92,6 @@ export function handle(id: string, raw: string) {
       return
     }
     if (msg.t === 'register') {
-      if (!game.playerNation(c.token)) throw new GameError('Found a nation first.')
       const recovery = claim(game.accounts, c.token, String(msg.user ?? ''), String(msg.pass ?? ''), game.tick)
       game.save()
       send(c, { t: 'account', user: String(msg.user).trim(), recovery })
@@ -101,7 +102,18 @@ export function handle(id: string, raw: string) {
       if (data) send(c, { t: 'trajectory', data })
       return
     }
-    if (msg.t === 'speed') { setSpeed(+msg.x || 1); return }
+    if (msg.t === 'speed') {
+      if (!isAdmin(c.token)) throw new GameError('Only the admin can change the speed of time.')
+      setSpeed(+msg.x || 1); return
+    }
+    if (msg.t === 'adminReset') {
+      if (!isAdmin(c.token)) throw new GameError('Only the admin can reset the world.')
+      setSpeed(1)
+      game.resetWorld()
+      for (const o of s.clients.values()) if (o.token) send(o, { t: 'welcome', token: o.token, nation: null, chat: [], account: accountOf(game.accounts, o.token) })
+      console.log('[states] world reset by admin')
+      return broadcast(s)
+    }
     if (msg.t === 'inspect') {
       if (game.P[+msg.province]) send(c, { t: 'province', detail: game.provinceDetail(+msg.province) })
       return

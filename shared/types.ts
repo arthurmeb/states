@@ -215,6 +215,7 @@ export type ClientMsg =
   | { t: 'party'; party: string; name: string }
   | { t: 'purge' }
   | { t: 'speed'; x: number }
+  | { t: 'adminReset' }
   | { t: 'found'; province: number; name: string; leader: string; color: string; motto: string; party?: string }
   | { t: 'policy'; id: string; value: string | number }
   | { t: 'budget'; budget: Budget }

@@ -17,7 +17,7 @@ export const TERRAIN: Record<Terrain, { label: string; food: number; defense: nu
 // One tick = one game day. A game month is 30 days, a year 360 days.
 export const DAYS_PER_MONTH = 30
 export const DAYS_PER_YEAR = 360
-export const START_YEAR = 2030
+export const START_YEAR = 1999
 /** default real-time length of one game month (1 hour) */
 export const DEFAULT_MONTH_MS = 3_600_000
 

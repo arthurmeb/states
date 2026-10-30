@@ -19,6 +19,9 @@ const clock = computed(() => {
   return ms >= 3_600_000 ? `1 month = ${(ms / 3_600_000).toFixed(ms % 3_600_000 ? 1 : 0)} h` : `1 month = ${Math.max(1, Math.round(ms / 60000))} min`
 })
 const oil = computed(() => snap.value?.market.prices[SECTOR_INDEX.oil] ?? 1)
+function resetWorld() {
+  if (confirm('Reset the entire world? Every nation (players included) is wiped and the clock restarts. Accounts survive.') && confirm('Really? This cannot be undone.')) send({ t: 'adminReset' })
+}
 const electoral = computed(() => !!me.value && ELECTORAL.has(String(me.value.policy.government)))
 const poll = computed(() => me.value?.power.votes[me.value.power.office === 'governing' ? me.value.power.govParty : me.value.power.party] ?? 0)
 const lead = computed(() => {
@@ -67,6 +70,7 @@ function home() { const m = me.value; const p = m && provinces.value[m.capital];
 
     <div v-if="snap?.canSpeed" class="speed" title="Fast-forward (development only): speeds up the whole world">
       <button v-for="[x, ic, l] in SPEEDS" :key="x" :class="{ on: snap.speed === x }" :title="l" @click="send({ t: 'speed', x })">{{ ic }}<small>{{ l }}</small></button>
+      <button title="Admin: wipe the world and restart the clock" @click="resetWorld">⟲<small>Reset</small></button>
     </div>
     <a class="btn guide" href="/guide" target="_blank" title="How to play, references and data sources">📖 Guide</a>
     <div class="toggles">

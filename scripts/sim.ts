@@ -28,7 +28,7 @@ const COLS = ['gdppc', 'growth', 'inflation', 'unemployment', 'debt', 'approval'
 for (let y = 0; y <= years; y++) {
   if (y > 0) for (let d = 0; d < 360; d++) g.step()
   const ns = pick()
-  console.log(`\n── year ${2030 + y} · tick ${g.tick} · ${((Date.now() - t0) / 1000).toFixed(0)}s · temp ${f(g.trends.temp, 2)}°C · green ${f(g.trends.green, 2)} · auto ${f(g.trends.automation, 2)} · oil ${f(g.prices[SECTOR_INDEX.oil], 2)} · nations ${[...g.nations.values()].filter(n => n.alive).length}`)
+  console.log(`\n── year ${1999 + y} · tick ${g.tick} · ${((Date.now() - t0) / 1000).toFixed(0)}s · temp ${f(g.trends.temp, 2)}°C · green ${f(g.trends.green, 2)} · auto ${f(g.trends.automation, 2)} · oil ${f(g.prices[SECTOR_INDEX.oil], 2)} · nations ${[...g.nations.values()].filter(n => n.alive).length}`)
   console.log('nation'.padEnd(28) + COLS.map(c => c.padStart(9)).join(''))
   for (const n of ns) {
     const I = n.idx

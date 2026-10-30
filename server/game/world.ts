@@ -36,7 +36,7 @@ const r2 = (x: number) => Math.round(x * 100) / 100
 /** Last `k` samples of a history (the full series is fetched on demand via `trajectory`). */
 const recent = (h: { t: number[]; series: Record<string, number[]> }, k: number) =>
   h.t.length <= k ? h : { t: h.t.slice(-k), series: Object.fromEntries(Object.entries(h.series).map(([s, v]) => [s, v.slice(-k)])) }
-const SAVE_VERSION = 3
+const SAVE_VERSION = 4
 
 export class Game {
   P: ProvinceStatic[]
@@ -217,6 +217,23 @@ export class Game {
     console.log(`[states] world ready: ${this.P.length} provinces, ${this.nations.size} AI nations, world GDP $${(wgdp * 12 / 1000).toFixed(1)}T`)
   }
 
+  /** Admin: wipe the world and start again from day one. Accounts and player keys survive (with no nation). */
+  resetWorld() {
+    for (const k of Object.keys(this.players)) this.players[k] = null
+    this.nations.clear()
+    Object.assign(this, {
+      tick: 0, nextId: 1, seq: 1, battles: [], results: [], news: [], chat: [], proposals: [], tradeBlocs: [], worldGdppc: 15000, avgTradablePrice: 1,
+      games: { edition: 1, nextTick: 48 * DAYS_PER_MONTH, host: null, hostCity: null, bidsOpen: false, bids: [], lastHost: null, lastMedals: [] },
+    })
+    this.prices.fill(1); this.sell.clear(); this.gamesHosted.clear(); this.aggressors.clear(); this.influence.clear(); this.aid.clear()
+    this.market.oilShock = []
+    this.bias.fill(1); this.off.fill(0)
+    this.ownedDirty = true; this.ctxCache.clear()
+    this.newWorld()
+    this.ensurePersona()
+    this.save()
+  }
+
   /** Spawn Claude's rival nation once per world (also into existing saves). */
   private ensurePersona() {
     if ([...this.nations.values()].some(n => n.brain?.persona === PERSONA.id)) return
@@ -383,7 +400,13 @@ export class Game {
     if (!existsSync(this.savePath)) return false
     try {
       const d = JSON.parse(readFileSync(this.savePath, 'utf8'))
-      if (d.v !== SAVE_VERSION || d.prov.length !== this.P.length) return false
+      if (d.v !== SAVE_VERSION || d.prov.length !== this.P.length) {
+        // a new world, but players keep their accounts and keys
+        this.accounts = d.accounts ?? {}
+        for (const k of Object.keys(d.players ?? {})) this.players[k] = null
+        console.log('[states] save is from an older world version: starting a fresh world (accounts kept)')
+        return false
+      }
       this.tick = d.tick; this.nextId = d.nextId; this.seq = d.seq
       this.prov = d.prov
       this.bias = Float32Array.from(d.bias); this.off = Float32Array.from(d.off)

@@ -108,7 +108,7 @@ function optionLabel(p: PolicyDef, v: string | number) {
       <section class="card">
         <div class="section-title">🌍 The world is changing</div>
         <div class="trend"><span>🌡 Global warming</span><b class="mono">+{{ T.temp.toFixed(2) }}°C</b><span class="muted">{{ T.co2.toFixed(0) }} Gt CO₂ a year · climate stress here: {{ (c.heat * 100).toFixed(0) }}/100</span></div>
-        <div class="trend"><span>☀ Energy transition</span><b class="mono">{{ pct(T.green) }}</b><span class="muted">of world energy is renewable · oil demand {{ pct(T.oilDemand) }} of 2030</span></div>
+        <div class="trend"><span>☀ Energy transition</span><b class="mono">{{ pct(T.green) }}</b><span class="muted">of world energy is renewable · oil demand {{ pct(T.oilDemand) }} of its starting level</span></div>
         <div class="trend"><span>🤖 Automation</span><b class="mono">{{ pct(T.automation) }}</b><span class="muted">of routine work automated · your skills {{ me.stocks.hc.toFixed(0) }}/100</span></div>
         <div class="trend"><span>⛏ Your reserves</span><b class="mono">{{ pct(me.reserves) }}</b><span class="muted">of original oil & mineral reserves left · resources {{ pct(c.resource) }} of GDP</span></div>
         <p class="hint">Emissions from every nation heat the planet: tropical and arid land loses harvests and productivity, the far north gains a little, disasters grow more frequent. As renewables spread, oil demand and prices fall. Automation rewards skilled economies and squeezes the cheap-labour path to industry.</p>

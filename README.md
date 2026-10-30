@@ -57,7 +57,7 @@ from the median of countries in the same region and income group.
 - `scripts/`: data fetch and world build. The world is 1,915 H3 hex provinces over real land, each mapped to its real country.
 - `shared/`: data-driven catalogs: 17 industries (`sectors.ts`), ~50 policies plus budget and provincial policy (`policies.ts`), 24 projects (`projects.ts`), 65 indices (`indices.ts`).
 - `server/game/`: the authoritative simulation (one tick = one game day). Besides the modules below: `conditions.ts`, `demography.ts`, `finance.ts`, `trends.ts`, `power.ts`, `risks.ts`, `trajectory.ts`.
-  - `economy.ts`: per-province employment across 17 sectors, productivity, local services, people. Calibrated so 2030 matches real data, then driven by policy.
+  - `economy.ts`: per-province employment across 17 sectors, productivity, local services, people. Calibrated so the start date matches real data, then driven by policy.
   - `nation.ts`: revenue (income, payroll, corporate, VAT, tariffs, resource rents), budget, debt, credit rating, inflation, defaults, slow national capital (tech, institutions, corruption, culture, brands, military).
   - `trade.ts`: weekly world markets per sector, gravity-model bilateral trade balanced with RAS, tariffs, embargoes, sanctions, blockades, trade blocs, aid, and the influence matrix.
   - `politics.ts`: eight factions weighted by demographics and system of government; elections, coups, revolutions, unrest, secession.

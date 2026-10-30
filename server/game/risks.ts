@@ -51,7 +51,7 @@ export function computeRisks(g: Game, n: Nation): Risk[] {
   if (n.warWeariness > 40) add('weary', 2, '⚰', 'War weariness', `${f0(n.warWeariness)}% and climbing.`, 'defense')
 
   // the world
-  if (c.resource > 0.1 && g.trends.green > 0.28) add('transition', c.resource > 0.2 ? 3 : 2, '🛢', 'Oil demand is falling', `Resources are ${f0(c.resource * 100)}% of GDP while the world goes green: oil demand is ${f0(g.trends.oilDemand * 100)}% of its 2030 level.`, 'economy')
+  if (c.resource > 0.1 && g.trends.green > 0.28) add('transition', c.resource > 0.2 ? 3 : 2, '🛢', 'Oil demand is falling', `Resources are ${f0(c.resource * 100)}% of GDP while the world goes green: oil demand is ${f0(g.trends.oilDemand * 100)}% of its starting level.`, 'economy')
   let res = 0, w = 0
   for (const pid of g.owned(n.id)) {
     const p = g.prov[pid], oil = p.output[S.oil], ore = p.output[S.mining]
