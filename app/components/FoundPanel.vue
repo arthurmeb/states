@@ -71,6 +71,7 @@ const ready = computed(() => name.value.trim().length >= 3 && target.value?.free
       <div class="eyebrow">A new nation is born</div>
       <h1>Found your state</h1>
       <a class="newhere" href="/guide" target="_blank">📖 New here? Read the guide & watch the demo →</a>
+      <AccountBox mode="login" />
       <p class="muted">Pick any unclaimed land on Earth. Geography is destiny: oil, farmland, straits, mountains and coastline all shape what your nation can become.</p>
     </div>
 

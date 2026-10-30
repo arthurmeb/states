@@ -61,7 +61,8 @@ const KIND: Record<string, string> = { peace: 'peace', alliance: 'an alliance', 
       <div class="quick">
         <button v-for="q in QUICK" :key="q.id" class="qb" @click="ui.gov = q.id"><span>{{ q.icon }}</span>{{ q.label }}</button>
       </div>
-      <button class="btn small block" style="margin-top:14px" @click="shareDevice">📱 Play on another device</button>
+      <AccountBox mode="claim" />
+      <button class="btn small block" style="margin-top:8px" @click="shareDevice">📱 Play on another device</button>
       <button class="btn danger small" style="margin-top:8px" @click="dissolve">Dissolve nation</button>
     </div>
   </div>

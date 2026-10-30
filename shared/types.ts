@@ -208,6 +208,8 @@ export type ClientMsg =
   | { t: 'hello'; token: string }
   | { t: 'trajectory'; nation: number }
   | { t: 'snapElection' }
+  | { t: 'register'; user: string; pass: string }
+  | { t: 'login'; user: string; pass: string }
   | { t: 'noConfidence' }
   | { t: 'campaign'; bloc: BlocId }
   | { t: 'party'; party: string; name: string }
@@ -245,7 +247,9 @@ export type ClientMsg =
 export type ServerMsg =
   | StateMsg
   | { t: 'trajectory'; data: Trajectory }
-  | { t: 'welcome'; token: string; nation: number | null; chat: ChatMsg[] }
+  | { t: 'welcome'; token: string; nation: number | null; chat: ChatMsg[]; account: string | null }
+  | { t: 'account'; user: string; recovery: string }
+  | { t: 'login'; token: string }
   | { t: 'error'; msg: string }
   | { t: 'toast'; msg: string }
   | { t: 'chat'; msg: ChatMsg }

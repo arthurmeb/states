@@ -27,6 +27,9 @@ const ui = reactive({
   /** Full weekly history + decision log per nation, fetched on demand. */
   trajectories: {} as Record<number, Trajectory>,
   trajSubject: null as number | null,
+  /** username this device is signed in as, and a just-issued recovery code (shown once) */
+  account: null as string | null,
+  recovery: null as string | null,
   /** open "why?" panel: a driver key (growth, inflation, pc, bloc:workers…) */
   why: null as string | null,
   lastTickAt: 0,
@@ -82,7 +85,9 @@ function connect() {
         if (ui.selected != null && msg.prov.owner[ui.selected] !== msg.me?.id && msg.tick % 7 === 0) send({ t: 'inspect', province: ui.selected })
         break
       }
-      case 'welcome': ui.token = msg.token; writeToken(msg.token); ui.chat = msg.chat; break
+      case 'welcome': ui.token = msg.token; writeToken(msg.token); ui.chat = msg.chat; ui.account = msg.account; break
+      case 'account': ui.account = msg.user; ui.recovery = msg.recovery; break
+      case 'login': writeToken(msg.token); location.reload(); break
       case 'chat': ui.chat.push(msg.msg); if (ui.chat.length > 100) ui.chat.shift(); break
       case 'toast': toast(msg.msg); break
       case 'error': toast(msg.msg, 'err'); break

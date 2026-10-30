@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import type { ClientMsg, ServerMsg } from '../../shared/types'
 import { DEFAULT_MONTH_MS, DAYS_PER_MONTH } from '../../shared/rules'
 import { Game, GameError } from './world'
+import { claim, login, accountOf } from './accounts'
 import { callElection, campaign, noConfidence, spendPC, partyName } from './power'
 import { ELECTORAL, PARTY_MAP } from '../../shared/power'
 import { BLOCS, type BlocId } from '../../shared/policies'
@@ -10,7 +11,7 @@ import { BLOCS, type BlocId } from '../../shared/policies'
 export const MONTH_MS = Number(process.env.GAME_MONTH_MS) || DEFAULT_MONTH_MS
 export const DAY_MS = MONTH_MS / DAYS_PER_MONTH
 
-interface Client { send: (data: string) => void; token: string | null }
+interface Client { send: (data: string) => void; token: string | null; fails?: number[] }
 interface Server { game: Game; clients: Map<string, Client>; timer?: ReturnType<typeof setTimeout>; speed: number; lastBroadcast: number }
 /** Fast-forward is a development tool: on in `nuxt dev`, or in production with STATES_ALLOW_SPEED=1. */
 export const CAN_SPEED = process.env.NODE_ENV !== 'production' || process.env.STATES_ALLOW_SPEED === '1'
@@ -58,6 +59,8 @@ export function disconnect(id: string) {
   if (c?.token && ![...s.clients.values()].some(o => o.token === c.token)) s.game.online.delete(c.token)
 }
 
+const userFails = new Map<string, number[]>()
+
 export function handle(id: string, raw: string) {
   const s = server(), game = s.game
   const c = s.clients.get(id)
@@ -71,11 +74,28 @@ export function handle(id: string, raw: string) {
       if (!(token in game.players)) game.players[token] = null
       c.token = token
       game.online.add(token)
-      send(c, { t: 'welcome', token, nation: game.players[token], chat: game.chat })
+      send(c, { t: 'welcome', token, nation: game.players[token], chat: game.chat, account: accountOf(game.accounts, token) })
       send(c, snap(s, token))
       return
     }
     if (!c.token) return
+    if (msg.t === 'login') {
+      // at most 5 failed attempts a minute per connection, and 10 per 10 minutes per username
+      const now = Date.now(), who = String(msg.user ?? '').trim().toLowerCase()
+      c.fails = (c.fails ?? []).filter(t => now - t < 60_000)
+      const uf = (userFails.get(who) ?? []).filter(t => now - t < 600_000)
+      userFails.set(who, uf)
+      if (c.fails.length >= 5 || uf.length >= 10) throw new GameError('Too many attempts. Wait a few minutes and try again.')
+      try { send(c, { t: 'login', token: login(game.accounts, who, String(msg.pass ?? '')) }) } catch (e) { c.fails.push(now); uf.push(now); throw e }
+      return
+    }
+    if (msg.t === 'register') {
+      if (!game.playerNation(c.token)) throw new GameError('Found a nation first.')
+      const recovery = claim(game.accounts, c.token, String(msg.user ?? ''), String(msg.pass ?? ''), game.tick)
+      game.save()
+      send(c, { t: 'account', user: String(msg.user).trim(), recovery })
+      return
+    }
     if (msg.t === 'trajectory') {
       const data = game.trajectory(+msg.nation)
       if (data) send(c, { t: 'trajectory', data })

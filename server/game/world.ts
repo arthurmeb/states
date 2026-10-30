@@ -18,6 +18,7 @@ import { initFin, financeDay, financeMonth } from './finance'
 import { initTrends, trendsMonth, TRENDS_2030, type Trends } from './trends'
 import { initPower, powerWeek, powerMonth, costCtx, spendPC, partyName } from './power'
 import { computeRisks } from './risks'
+import type { Account } from './accounts'
 import { policyYears } from './mods'
 import { DEFAULT_COND } from '../../shared/conditions'
 import { policyCost, budgetCost, ELECTORAL, PARTY_MAP } from '../../shared/power'
@@ -57,6 +58,7 @@ export class Game {
   chat: ChatMsg[] = []
   proposals: Proposal[] = []
   players: Record<string, number | null> = {}
+  accounts: Record<string, Account> = {}
   online = new Set<string>()
   prices: number[] = new Array(NS).fill(1)
   demandShare: number[] = new Array(NS).fill(0)
@@ -371,7 +373,7 @@ export class Game {
       prov: this.prov.map(p => ({ ...p, jobs: p.jobs.map(r2), output: p.output.map(x => +x.toPrecision(4)) })),
       bias: Array.from(this.bias, r2), off: Array.from(this.off, r2),
       nations: [...this.nations.values()], battles: this.battles, news: this.news, chat: this.chat, proposals: this.proposals,
-      players: this.players, prices: this.prices, demandShare: this.demandShare, sell: [...this.sell], tradeBlocs: this.tradeBlocs,
+      players: this.players, accounts: this.accounts, prices: this.prices, demandShare: this.demandShare, sell: [...this.sell], tradeBlocs: this.tradeBlocs,
       games: this.games, gamesHosted: [...this.gamesHosted], aggressors: [...this.aggressors], worldGdppc: this.worldGdppc, trends: this.trends,
     }
     writeFileSync(this.savePath + '.tmp', JSON.stringify(data))
@@ -391,6 +393,7 @@ export class Game {
       this.sell = new Map(d.sell); this.gamesHosted = new Map(d.gamesHosted); this.aggressors = new Map(d.aggressors)
       this.ownedDirty = true
       this.trends = d.trends ?? initTrends(this)
+      this.accounts = d.accounts ?? {}
       for (const p of this.prov) p.res ??= { oil: 1, metals: 1 }
       for (const n of this.nations.values()) this.migrate(n)
       tradeWeek(this)
