@@ -9,3 +9,4 @@ data/raw
 video/assets
 video/preview-*.jpg
 .data-video
+video/*.wav

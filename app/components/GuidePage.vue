@@ -76,7 +76,11 @@ const TOOLS = [
           <div class="eyebrow">How to play</div>
           <h1>Run a country on a living planet.</h1>
           <p class="lead">STATES is a multiplayer nation simulation on a 3D globe. Every province of Earth runs its own economy, seeded from real World Bank, UNDP and governance data. You set the policies; the world plays them out, day by day, alongside other players and AI powers with their own ideologies.</p>
-          <video class="demo" src="/media/states-demo.mp4" controls playsinline preload="metadata" poster="/media/states-poster.jpg" />
+          <video class="demo" src="/media/states-guide.mp4" controls playsinline preload="metadata" poster="/media/states-guide-poster.jpg" />
+          <div class="trailer">
+            <video class="demo" src="/media/states-trailer.mp4" controls playsinline preload="metadata" poster="/media/states-trailer-poster.jpg" />
+            <p class="muted small">🎬 <b>The trailer:</b> a leaked briefing on four players, one broken treaty and a sultanate that should have read the fine print.</p>
+          </div>
         </section>
 
         <section id="start">
@@ -401,6 +405,8 @@ h1 { font-size: 46px; line-height: 1.1; margin: 8px 0 14px; letter-spacing: -0.0
 h2 { font-size: 27px; margin: 26px 0 10px; padding-top: 16px; border-top: 1px solid var(--line); }
 h3 { font-size: 17px; margin: 18px 0 8px; }
 .lead { font-size: 18px; color: #c9d0db; max-width: 820px; }
+.trailer { margin-top: 18px; }
+.trailer .demo { margin-top: 0; }
 .demo { width: 100%; border-radius: 14px; border: 1px solid var(--line-strong); margin-top: 16px; background: #000; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
 .steps li { margin-bottom: 10px; }
 .callout { background: rgba(255, 212, 59, .08); border: 1px solid rgba(255, 212, 59, .3); border-radius: 10px; padding: 12px 16px; font-size: 14px; }

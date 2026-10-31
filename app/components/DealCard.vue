@@ -7,8 +7,8 @@ import { useGame } from '~/composables/useGame'
 const props = defineProps<{ id: number; full?: boolean }>()
 const { ui, send, me, nations } = useGame()
 const d = computed(() => ui.deals.find(x => x.id === props.id))
-const a = computed(() => nations.value.get(d.value?.a ?? -1)?.name ?? 'a fallen state')
-const b = computed(() => nations.value.get(d.value?.b ?? -1)?.name ?? 'a fallen state')
+const a = computed(() => nations.value.get(d.value?.a ?? -1)?.name ?? d.value?.names?.[0] ?? 'a fallen state')
+const b = computed(() => nations.value.get(d.value?.b ?? -1)?.name ?? d.value?.names?.[1] ?? 'a fallen state')
 const LABEL: Record<string, string> = { proposed: 'Awaiting answer', active: 'In force', rejected: 'Rejected', done: 'Completed', broken: 'Broken', cancelled: 'Lapsed', draft: 'Draft' }
 const mine = computed(() => d.value?.b === me.value?.id)
 function renounce() { if (confirm('Renouncing a treaty is a public breach: you lose legitimacy and diplomatic standing, and they gain a just cause against you. Renounce?')) send({ t: 'dealRenounce', id: props.id }) }
@@ -25,7 +25,7 @@ function renounce() { if (confirm('Renouncing a treaty is a public breach: you l
       <li v-for="(c, i) in d.clauses" :key="i"><span>{{ CLAUSES[c.kind].icon }}</span> {{ describe(c, a, b) }}</li>
     </ul>
     <div v-if="d.notes" class="muted small">💡 {{ d.notes }}</div>
-    <div v-if="d.breach" class="breach">💔 Broken by {{ nations.get(d.breach.by)?.name }}: {{ d.breach.what }}</div>
+    <div v-if="d.breach" class="breach">💔 Broken by {{ d.breach.by === d.a ? a : b }}: {{ d.breach.what }}</div>
     <div v-if="d.status === 'proposed' && mine" class="row">
       <button class="btn primary small" @click="send({ t: 'dealRespond', id: d.id, accept: true })">Accept</button>
       <button class="btn small" @click="send({ t: 'dealRespond', id: d.id, accept: false })">Reject</button>

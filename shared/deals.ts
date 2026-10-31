@@ -45,6 +45,8 @@ export type DealStatus = 'draft' | 'proposed' | 'active' | 'rejected' | 'done' |
 export interface Deal {
   id: number
   a: number; b: number
+  /** party names when the deal was proposed, so it still reads after a party falls */
+  names?: [string, string]
   title: string
   /** what the proposer originally wrote, if anything */
   text: string

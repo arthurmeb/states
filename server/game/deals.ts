@@ -75,7 +75,7 @@ export function propose(g: Game, a: Nation, b: Nation, title: string, text: stri
   if (a.id === b.id) throw new GameError('A deal needs two nations.')
   if (!clauses.length) throw new GameError('Add at least one clause.')
   if (g.deals.list.filter(d => d.a === a.id && d.status === 'proposed').length >= 5) throw new GameError('You have too many open proposals. Wait for answers first.')
-  const d: Deal = { id: g.deals.next++, a: a.id, b: b.id, title: title.trim().slice(0, 60) || 'Agreement', text: text.slice(0, 1500), clauses, notes: notes.slice(0, 300), status: 'proposed', created: g.tick, start: null, end: null, state: {}, breach: null }
+  const d: Deal = { id: g.deals.next++, a: a.id, b: b.id, names: [a.name, b.name], title: title.trim().slice(0, 60) || 'Agreement', text: text.slice(0, 1500), clauses, notes: notes.slice(0, 300), status: 'proposed', created: g.tick, start: null, end: null, state: {}, breach: null }
   g.deals.list.push(d)
   postDealMsg(g, a, b, `📜 ${a.name} proposes “${d.title}”: ${clauses.map(c => describe(c, a.name, b.name)).join('; ')}.`, d.id)
   if (b.ai) respond(g, b, d.id, aiJudge(g, b, d))

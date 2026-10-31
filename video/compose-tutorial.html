@@ -1,0 +1,131 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>html,body{margin:0;background:#000}canvas{display:block}</style></head>
+<body><canvas id="c" width="1920" height="1080"></canvas>
+<script>
+// STATES — "How to play" walkthrough. Real screenshots, an animated cursor, camera zooms and captions.
+const W = 1920, H = 1080, c = document.getElementById('c'), x = c.getContext('2d')
+const A = 'assets/'
+const SANS = 'Inter, sans-serif', MONO = "'JetBrains Mono', monospace", ACC = '#ffd43b'
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v))
+const ease = t => (t <= 0 ? 0 : t >= 1 ? 1 : t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
+const prog = (t, a, b) => clamp((t - a) / (b - a), 0, 1)
+const load = src => new Promise(r => { const i = new Image(); i.onload = () => r(i); i.onerror = () => r(null); i.src = src })
+const IMG = {}
+let STEPS = [], DURATION = 0
+const SFX = []
+const INTRO = 5, OUTRO = 6
+
+function wrap(s, maxW, font) { x.font = font; const out = []; let line = ''; for (const w of s.split(' ')) { const t = line ? line + ' ' + w : w; if (x.measureText(t).width > maxW && line) { out.push(line); line = w } else line = t } if (line) out.push(line); return out }
+function rr(px, py, w, h, r) { x.beginPath(); x.roundRect(px, py, w, h, r) }
+
+/** Camera for a step at local time u: zoom towards the target after the click. */
+function camera(s, u) {
+  const tg = s.target
+  if (!tg) return { z: 1, sx: 0, sy: 0 }
+  const z = 1 + (s.zoom - 1) * ease(prog(u, 2.0, 3.2))
+  const fx = tg.x + tg.w / 2, fy = tg.y + tg.h / 2
+  const sw = W / z, sh = H / z
+  return { z, sx: clamp(fx - sw / 2, 0, W - sw), sy: clamp(fy - sh / 2, 0, H - sh) }
+}
+const toScreen = (cam, px, py) => [(px - cam.sx) * cam.z, (py - cam.sy) * cam.z]
+function drawShot(img, cam, alpha = 1) {
+  if (!img) return
+  x.save(); x.globalAlpha = alpha
+  x.drawImage(img, cam.sx, cam.sy, W / cam.z, H / cam.z, 0, 0, W, H)
+  x.restore()
+}
+function drawCursor(px, py, down) {
+  x.save(); x.translate(px, py); x.scale(down ? 0.9 : 1, down ? 0.9 : 1)
+  x.shadowColor = 'rgba(0,0,0,0.5)'; x.shadowBlur = 10; x.shadowOffsetY = 4
+  x.beginPath(); x.moveTo(0, 0); x.lineTo(0, 38); x.lineTo(10, 29); x.lineTo(17, 45); x.lineTo(24, 42); x.lineTo(17, 26); x.lineTo(29, 26); x.closePath()
+  x.fillStyle = '#fff'; x.fill(); x.shadowColor = 'transparent'; x.strokeStyle = '#111'; x.lineWidth = 2; x.stroke()
+  x.restore()
+}
+function caption(s, idx, u, top) {
+  const a = ease(prog(u, 0.7, 1.3)) * (1 - ease(prog(u, s.len - 0.45, s.len)))
+  if (a <= 0) return
+  const bw = 760
+  const lines = wrap(s.body, bw - 64, `500 25px ${SANS}`)
+  const bh = 112 + lines.length * 35
+  const bx = 70, by = top ? 96 : H - bh - 70
+  x.save(); x.globalAlpha = a
+  x.shadowColor = 'rgba(0,0,0,0.55)'; x.shadowBlur = 40; x.shadowOffsetY = 12
+  rr(bx, by + (1 - a) * 18, bw, bh, 18); x.fillStyle = 'rgba(10,14,22,0.94)'; x.fill()
+  x.shadowColor = 'transparent'; x.strokeStyle = 'rgba(255,212,59,0.55)'; x.lineWidth = 2; x.stroke()
+  x.fillStyle = ACC; x.font = `700 18px ${MONO}`; x.textBaseline = 'alphabetic'; x.fillText(`STEP ${idx + 1} / ${STEPS.length}`, bx + 32, by + 44)
+  x.fillStyle = '#fff'; x.font = `800 36px ${SANS}`; x.fillText(s.title, bx + 32, by + 90)
+  x.fillStyle = '#c9d1dc'; x.font = `500 25px ${SANS}`
+  lines.forEach((l, i) => x.fillText(l, bx + 32, by + 132 + i * 35))
+  x.restore()
+}
+function progressBar(t) {
+  const p = clamp((t - INTRO) / (DURATION - INTRO - OUTRO), 0, 1)
+  x.fillStyle = 'rgba(255,255,255,0.12)'; x.fillRect(0, H - 6, W, 6)
+  x.fillStyle = ACC; x.fillRect(0, H - 6, W * p, 6)
+}
+function titleCard(t, t0, len, big, sub) {
+  const bg = IMG['globe-night'] || IMG['globe-day']
+  if (bg) { x.save(); x.filter = 'blur(6px) brightness(0.45)'; const z = 1.08 + 0.04 * prog(t, t0, t0 + len); x.drawImage(bg, (W - W * z) / 2, (H - H * z) / 2, W * z, H * z); x.restore() }
+  const a = ease(prog(t, t0 + 0.3, t0 + 1.2)) * (1 - ease(prog(t, t0 + len - 0.6, t0 + len)))
+  x.save(); x.globalAlpha = a; x.textAlign = 'center'
+  x.fillStyle = ACC; x.font = `700 26px ${MONO}`; x.fillText(sub, W / 2, H / 2 - 120)
+  x.fillStyle = '#fff'; x.font = `900 120px ${SANS}`; x.fillText(big, W / 2, H / 2 + 10)
+  x.restore()
+}
+
+function renderAt(t) {
+  x.setTransform(1, 0, 0, 1, 0, 0); x.filter = 'none'; x.globalAlpha = 1
+  x.fillStyle = '#05080f'; x.fillRect(0, 0, W, H)
+  if (t < INTRO) { titleCard(t, 0, INTRO, 'How to play', 'STATES · THE GUIDE'); return }
+  if (t >= DURATION - OUTRO) { titleCard(t, DURATION - OUTRO, OUTRO, 'Found your state.', 'NOW IT’S YOUR TURN'); return }
+  let i = STEPS.findIndex(s => t < s.t0 + s.len)
+  if (i < 0) i = STEPS.length - 1
+  const s = STEPS[i], u = t - s.t0
+  const cam = camera(s, u)
+  // cross-fade from the previous step
+  const prev = STEPS[i - 1]
+  if (prev && u < 0.5) { drawShot(IMG[prev.img], camera(prev, prev.len), 1); drawShot(IMG[s.img], cam, ease(u / 0.5)) }
+  else drawShot(IMG[s.img], cam)
+  // highlight ring around the target
+  if (s.target) {
+    const [ax, ay] = toScreen(cam, s.target.x - 8, s.target.y - 8)
+    const [bx, by] = toScreen(cam, s.target.x + s.target.w + 8, s.target.y + s.target.h + 8)
+    const a = ease(prog(u, 1.8, 2.4)) * (1 - ease(prog(u, s.len - 0.5, s.len)))
+    x.save(); x.globalAlpha = a
+    x.fillStyle = 'rgba(0,0,0,0.45)'
+    x.beginPath(); x.rect(0, 0, W, H); x.roundRect(ax, ay, bx - ax, by - ay, 12); x.fill('evenodd')
+    x.strokeStyle = ACC; x.lineWidth = 4 + 2 * Math.sin(u * 5); rr(ax, ay, bx - ax, by - ay, 12); x.stroke()
+    x.restore()
+  }
+  // cursor: glides from the previous target to this one, clicks, then follows the zoom
+  const from = prev?.target ? [prev.target.x + prev.target.w / 2, prev.target.y + prev.target.h / 2] : [W * 0.6, H * 0.55]
+  const to = s.target ? [s.target.x + Math.min(s.target.w / 2, 60), s.target.y + s.target.h / 2] : [W * 0.62, H * 0.5]
+  const m = ease(prog(u, 0.4, 1.7))
+  const [cx, cy] = toScreen(cam, from[0] + (to[0] - from[0]) * m, from[1] + (to[1] - from[1]) * m)
+  if (s.click && s.target) {
+    const k = prog(u, 1.85, 2.45)
+    if (k > 0 && k < 1) { x.save(); x.globalAlpha = 1 - k; x.strokeStyle = ACC; x.lineWidth = 4; x.beginPath(); x.arc(cx, cy, 14 + 50 * k, 0, Math.PI * 2); x.stroke(); x.restore() }
+  }
+  drawCursor(cx, cy, s.click && u > 1.85 && u < 2.1)
+  const top = s.target ? (s.target.y + s.target.h / 2 > H * 0.55 && s.target.x < 900) : false
+  caption(s, i, u, top)
+  progressBar(t)
+}
+window.renderAt = renderAt
+;(async () => {
+  const meta = await (await fetch(A + 'meta.json')).json()
+  let t = INTRO
+  STEPS = meta.steps.map(s => { const len = 6 + s.body.length / 36; const o = { ...s, t0: t, len }; t += len; return o })
+  DURATION = t + OUTRO
+  for (const s of STEPS) { SFX.push({ t: s.t0, k: 'whoosh' }); if (s.click && s.target) SFX.push({ t: s.t0 + 1.9, k: 'click' }) }
+  SFX.push({ t: 0.2, k: 'whoosh' }, { t: DURATION - OUTRO, k: 'whoosh' })
+  window.DURATION = DURATION; window.SFX = SFX
+  await Promise.all([...new Set([...STEPS.map(s => s.img.replace('.jpg', '')), 'globe-night', 'globe-day'])].map(async f => { IMG[f + '.jpg'] = IMG[f] = await load(A + f + '.jpg') }))
+  await document.fonts.ready
+  await Promise.all([document.fonts.load(`800 36px ${SANS}`), document.fonts.load(`700 18px ${MONO}`)])
+  renderAt(0)
+  window.ready = true
+})()
+</script></body></html>

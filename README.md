@@ -66,15 +66,17 @@ from the median of countries in the same region and income group.
   - `events.ts`: dilemmas, world shocks, disasters, the World Games.
 - `app/`: Nuxt 4 client. MapLibre globe (cities, skylines, industry badges, armies, animated trade lanes, 11 map modes, day/night), the Government dashboard, and an isometric province view generated from each province's state.
 
-## Guide & demo video
+## Guide & videos
 - **In-game guide:** `/guide` (📖 in the top bar) covers controls, every system, and reference tables generated from the game's own catalogs (industries, all policies with their exact effects, budget lines, projects, indices), plus data sources.
-- **Demo video:** `public/media/states-demo.mp4` (66 s, 1080p). To regenerate it from live gameplay:
+- **Videos:** `public/media/states-trailer.mp4` (the trailer, a "leaked briefing" dossier) and `public/media/states-guide.mp4` (a cursor-driven walkthrough, shown on `/guide`). Both are composed on a canvas from real screenshots of a scripted multiplayer world, and the soundtrack is synthesised from the composition's cue list. To regenerate them (needs Chrome and ffmpeg):
   ```bash
-  GAME_MONTH_MS=3000 STATES_DATA_DIR=.data-video npx nuxi dev --port 4100 --host 127.0.0.1   # fast showcase world
-  node scripts/video/seed.mjs http://127.0.0.1:4100 4      # play a showcase nation for 4 game years
-  node scripts/video/capture.mjs http://127.0.0.1:4100     # headless Chrome captures stills + sequences → video/assets
-  node scripts/video/preview.mjs                           # contact frames of the composition
-  node scripts/video/render.mjs                            # video/compose.html → MP4 via ffmpeg (needs ffmpeg + Chrome)
+  GAME_MONTH_MS=3000 STATES_DATA_DIR=.data-video npx nuxi dev --port 4100 --host 127.0.0.1      # fast clock while seeding
+  node scripts/video/seed.mjs http://127.0.0.1:4100                                             # four players, café threads, deals, a broken treaty, a war
+  GAME_MONTH_MS=3600000 STATES_DATA_DIR=.data-video npx nuxi dev --port 4100 --host 127.0.0.1   # restart on the slow clock
+  node scripts/video/capture.mjs http://127.0.0.1:4100                                          # stills + tutorial steps → video/assets
+  node scripts/video/preview.mjs compose-briefing.html 10 40 70                                 # spot-check frames
+  node scripts/video/render.mjs --page compose-briefing.html --out public/media/states-trailer.mp4 --bed drone
+  node scripts/video/render.mjs --page compose-tutorial.html --out public/media/states-guide.mp4 --bed pad
   ```
 
 ## Deploy (Hetzner VPS + Coolify)

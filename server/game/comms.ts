@@ -37,8 +37,11 @@ export function roomsFor(g: Game, n: Nation | undefined): RoomView[] {
   return g.comms.rooms.filter(r => canSee(g, r, n)).map(r => {
     const last = g.comms.msgs[r.id]?.at(-1)
     const mem = membersOf(g, r)
-    const other = r.kind === 'dm' && n ? g.nation(mem?.find(id => id !== n.id)) : undefined
-    return { ...r, members: mem ?? [], title: other ? other.name : r.title, preview: last ? `${last.nation}: ${last.text}`.slice(0, 90) : '', color: other?.color ?? r.color }
+    const otherId = r.kind === 'dm' && n ? mem?.find(id => id !== n.id) : undefined
+    const other = g.nation(otherId)
+    // a partner that no longer exists keeps its name in the conversation
+    const gone = otherId != null && !other?.alive ? (g.comms.msgs[r.id] ?? []).find(m => m.nationId === otherId)?.nation : undefined
+    return { ...r, members: mem ?? [], title: other?.alive ? other.name : gone ? `${gone} (dissolved)` : r.title, preview: last ? `${last.nation}: ${last.text}`.slice(0, 90) : '', color: other?.color ?? r.color }
   }).sort((a, b) => b.lastTs - a.lastTs)
 }
 

@@ -1,0 +1,325 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Special+Elite&family=IBM+Plex+Mono:wght@400;600;700&family=Inter:wght@500;700;800;900&display=swap" rel="stylesheet">
+<style>html,body{margin:0;background:#000}canvas{display:block}</style></head>
+<body><canvas id="c" width="1920" height="1080"></canvas>
+<script>
+// STATES — "Leaked briefing" trailer. Deterministic: renderAt(t) draws frame t; window.SFX lists sound cues.
+const W = 1920, H = 1080, c = document.getElementById('c'), x = c.getContext('2d')
+const A = 'assets/'
+const IMG = {}
+const SPIN = 120
+const files = ['globe-day', 'globe-night', 'gulf', 'kamerun-home', 'map-diplomatic', 'comms-opec', 'comms-dm', 'comms-coalition', 'comms-straits', 'comms-cocoa', 'gov-power', 'gov-overview', 'why-growth', 'gov-dynamics', 'gov-trajectory', 'gov-economic', 'province-view', 'map-blocs']
+const load = src => new Promise(r => { const i = new Image(); i.onload = () => r(i); i.onerror = () => r(null); i.src = src })
+const TYPE = "'Special Elite', 'Courier New', monospace", MONO = "'IBM Plex Mono', monospace", SANS = "Inter, sans-serif"
+const RED = '#e03131', PAPER = '#efe6d2', INK = '#1d1a16', AMBER = '#ffd43b'
+
+// ── helpers ──
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v))
+const ease = t => (t < 0 ? 0 : t > 1 ? 1 : t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
+const prog = (t, a, b) => clamp((t - a) / (b - a), 0, 1)
+let seed = 1
+const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647
+const SFX = []
+/** Typewriter text: chars appear at `cps`; registers keystroke sounds. */
+const typed = []
+function type(id, text, t0, cps = 26) { typed.push({ id, text, t0, cps }); for (let i = 0; i < text.length; i++) if (text[i] !== ' ' && i % 2 === 0) SFX.push({ t: t0 + i / cps, k: 'key' }); return { text, t0, cps } }
+const shown = (T, t) => T.text.slice(0, Math.max(0, Math.floor((t - T.t0) * T.cps)))
+const stamps = []
+function stamp(text, t0, x0, y0, rot = -0.12, color = RED, size = 92) { stamps.push({ text, t0, x0, y0, rot, color, size }); SFX.push({ t: t0 + 0.12, k: 'stamp' }); return stamps.at(-1) }
+const cue = (t, k) => SFX.push({ t, k })
+
+function drawStamp(s, t) {
+  if (t < s.t0) return
+  const p = prog(t, s.t0, s.t0 + 0.18), sc = 1 + (1 - ease(p)) * 1.6
+  x.save(); x.translate(s.x0, s.y0); x.rotate(s.rot); x.scale(sc, sc); x.globalAlpha = 0.85 * ease(p)
+  x.font = `${s.size}px ${TYPE}`; x.textAlign = 'center'; x.textBaseline = 'middle'
+  const w = x.measureText(s.text).width + 60, h = s.size * 1.25
+  x.strokeStyle = s.color; x.lineWidth = 8; x.strokeRect(-w / 2, -h / 2, w, h)
+  x.lineWidth = 3; x.strokeRect(-w / 2 + 10, -h / 2 + 10, w - 20, h - 20)
+  x.fillStyle = s.color; x.fillText(s.text, 0, 4)
+  x.restore()
+}
+function grain(t, a = 0.07) {
+  seed = Math.floor(t * 24) * 7919 + 1
+  x.save(); x.globalAlpha = a
+  for (let i = 0; i < 900; i++) { x.fillStyle = rnd() < 0.5 ? '#fff' : '#000'; x.fillRect(rnd() * W, rnd() * H, 2, 2) }
+  x.restore()
+  x.save(); x.globalAlpha = 0.06; x.fillStyle = '#000'
+  for (let y = 0; y < H; y += 4) x.fillRect(0, y, W, 1)
+  x.restore()
+  const g = x.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.95)
+  g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.75)')
+  x.fillStyle = g; x.fillRect(0, 0, W, H)
+}
+function text(s, px, py, font, color, align = 'left') { x.font = font; x.fillStyle = color; x.textAlign = align; x.textBaseline = 'alphabetic'; x.fillText(s, px, py) }
+function cursor(t, px, py) { if (Math.floor(t * 2) % 2 === 0) { x.fillStyle = AMBER; x.fillRect(px + 4, py - 30, 16, 34) } }
+function wrap(s, maxW, font) { x.font = font; const out = []; let line = ''; for (const w of s.split(' ')) { const tryL = line ? line + ' ' + w : w; if (x.measureText(tryL).width > maxW && line) { out.push(line); line = w } else line = tryL } if (line) out.push(line); return out }
+/** Surveillance feed: an image with crosshair, REC, coordinates, green-grey grade. */
+function feed(img, t, t0, t1, opts = {}) {
+  if (!img) return
+  const p = prog(t, t0, t1), z = (opts.z0 ?? 1.05) + ((opts.z1 ?? 1.2) - (opts.z0 ?? 1.05)) * ease(p)
+  const cx = opts.cx ?? 0.5, cy = opts.cy ?? 0.5
+  x.save()
+  x.filter = opts.filter ?? 'grayscale(0.55) sepia(0.25) hue-rotate(60deg) contrast(1.15) brightness(0.85)'
+  const sw = W / z, sh = H / z
+  x.drawImage(img, clamp(cx * W - sw / 2, 0, W - sw), clamp(cy * H - sh / 2, 0, H - sh), sw, sh, 0, 0, W, H)
+  x.restore()
+  // HUD
+  x.save(); x.strokeStyle = 'rgba(180,255,190,0.6)'; x.lineWidth = 2
+  const m = 60
+  for (const [ax, ay, dx, dy] of [[m, m, 1, 1], [W - m, m, -1, 1], [m, H - m, 1, -1], [W - m, H - m, -1, -1]]) { x.beginPath(); x.moveTo(ax, ay + 50 * dy); x.lineTo(ax, ay); x.lineTo(ax + 50 * dx, ay); x.stroke() }
+  if (opts.target) {
+    const [tx, ty] = opts.target, r = 70 + 10 * Math.sin(t * 6)
+    x.strokeStyle = RED; x.lineWidth = 3; x.beginPath(); x.arc(tx, ty, r, 0, Math.PI * 2); x.stroke()
+    x.beginPath(); x.moveTo(tx - r - 30, ty); x.lineTo(tx - r + 15, ty); x.moveTo(tx + r - 15, ty); x.lineTo(tx + r + 30, ty); x.moveTo(tx, ty - r - 30); x.lineTo(tx, ty - r + 15); x.moveTo(tx, ty + r - 15); x.lineTo(tx, ty + r + 30); x.stroke()
+  }
+  if (Math.floor(t * 1.5) % 2 === 0) { x.fillStyle = RED; x.beginPath(); x.arc(m + 30, m + 40, 10, 0, Math.PI * 2); x.fill() }
+  text('REC', m + 50, m + 50, `700 26px ${MONO}`, 'rgba(255,255,255,0.85)')
+  text(opts.label ?? 'SAT FEED 7', W - m - 10, m + 50, `600 24px ${MONO}`, 'rgba(180,255,190,0.85)', 'right')
+  text(opts.coords ?? `LAT ${(12 + Math.sin(t) * 0.01).toFixed(4)} LON ${(41 + Math.cos(t) * 0.01).toFixed(4)}`, m + 20, H - m - 20, `500 22px ${MONO}`, 'rgba(180,255,190,0.85)')
+  text(opts.stamp ?? '', W - m - 10, H - m - 20, `500 22px ${MONO}`, 'rgba(180,255,190,0.85)', 'right')
+  x.restore()
+}
+/** A paper sheet with a screenshot "photo" pinned to it. */
+function photo(img, sx, sy, sw, sh, dx, dy, dw, dh, rot, t, t0) {
+  if (!img || t < t0) return
+  const p = ease(prog(t, t0, t0 + 0.45))
+  x.save(); x.translate(dx + dw / 2, dy + dh / 2 + (1 - p) * 60); x.rotate(rot * p + (1 - p) * rot * 2); x.globalAlpha = p
+  x.shadowColor = 'rgba(0,0,0,0.6)'; x.shadowBlur = 40; x.shadowOffsetY = 18
+  x.fillStyle = '#f8f5ee'; x.fillRect(-dw / 2 - 16, -dh / 2 - 16, dw + 32, dh + 32)
+  x.shadowColor = 'transparent'
+  x.drawImage(img, sx, sy, sw, sh, -dw / 2, -dh / 2, dw, dh)
+  // paperclip
+  x.strokeStyle = '#9aa0a6'; x.lineWidth = 5; x.beginPath(); x.roundRect(-dw / 2 + 40, -dh / 2 - 40, 34, 90, 17); x.stroke()
+  x.restore()
+}
+function paper(t) {
+  const g = x.createLinearGradient(0, 0, W, H); g.addColorStop(0, '#e9dfc7'); g.addColorStop(1, '#d9ccad')
+  x.fillStyle = g; x.fillRect(0, 0, W, H)
+  seed = 4242
+  x.save(); x.globalAlpha = 0.05; for (let i = 0; i < 3000; i++) { x.fillStyle = rnd() < 0.5 ? '#6b5a3a' : '#fff'; x.fillRect(rnd() * W, rnd() * H, 2, 2) } x.restore()
+}
+function header(t, label) {
+  x.fillStyle = 'rgba(0,0,0,0.85)'; x.fillRect(0, 0, W, 58)
+  text('TOP SECRET // EYES ONLY // DEPARTMENT OF WORLD AFFAIRS', 40, 39, `600 22px ${MONO}`, RED)
+  text(label, W - 40, 39, `500 22px ${MONO}`, 'rgba(255,255,255,0.7)', 'right')
+}
+function redact(px, py, w, h, t, t0) { if (t < t0) return; const p = ease(prog(t, t0, t0 + 0.35)); x.fillStyle = '#0b0b0b'; x.fillRect(px, py, w * p, h) }
+function lowerThird(T, t, y = H - 150) {
+  const s = shown(T, t); if (!s) return
+  x.fillStyle = 'rgba(0,0,0,0.78)'; x.fillRect(80, y - 58, Math.min(W - 160, x.measureText ? 1760 : 0), 86)
+  text(s, 110, y, `40px ${TYPE}`, PAPER); x.font = `40px ${TYPE}`; cursor(t, 110 + x.measureText(s).width, y)
+}
+
+// ── the script ──
+const S = {}
+let D = 0
+const scene = (name, len) => { S[name] = [D, D + len]; D += len; return S[name][0] }
+const t0 = scene('open', 7)
+const T_open1 = type('o1', 'DEPARTMENT OF WORLD AFFAIRS', t0 + 0.6, 22)
+const T_open2 = type('o2', 'BRIEFING NO. 1999-001', t0 + 2.2, 22)
+const T_open3 = type('o3', 'SUBJECT: THE WORLD HAS BEEN HANDED TO AMATEURS.', t0 + 3.6, 26)
+stamp('TOP SECRET', t0 + 5.6, W / 2, 830, -0.08)
+cue(t0, 'static'); cue(t0 + 0.2, 'drone')
+
+const t1 = scene('earth', 7)
+cue(t1, 'static')
+const T_earth = type('e1', 'January 1999. 1,915 provinces. 6.07 billion people. No adult supervision.', t1 + 0.6, 30)
+
+const t2 = scene('agents', 13)
+cue(t2, 'static')
+const AGENTS = [
+  { name: 'REPUBLIC OF KAMERUN', user: '@baobab_boss', color: '#40c057', note: 'Ambitious. Sells cocoa. Asked what a centrifuge is.', status: 'ACTIVE' },
+  { name: 'NORDVIK UNION', user: '@fjordlord', color: '#4dabf7', note: 'Very rich. Very polite. Very dangerous.', status: 'ACTIVE' },
+  { name: 'SULTANATE OF QADIRA', user: '@oil_whisperer', color: '#f59f00', note: 'Sells oil. Buys trouble.', status: 'SEE PAGE 4' },
+  { name: 'FREE REPUBLIC OF PACIFICA', user: '@mei_lin', color: '#e64980', note: 'Makes chips. Keeps receipts.', status: 'ACTIVE' },
+]
+const T_agents = type('a0', 'FIELD REPORT: NATIONS ARE NOW RUN BY REAL PEOPLE.', t2 + 0.3, 28)
+AGENTS.forEach((a, i) => { a.t = t2 + 2.2 + i * 2.4; a.T = type('a' + i, a.note, a.t + 0.6, 30); cue(a.t, 'blip') })
+
+const t3 = scene('opec', 9)
+cue(t3, 'static'); cue(t3 + 0.3, 'blip')
+const T_opec = type('op', 'INTERCEPT 03: PUBLIC CHANNEL. Cartel negotiations are going about as well as expected.', t3 + 0.8, 30)
+const T_opecNote = type('opn', 'ANALYST NOTE: Nordvik’s oil is “ethically aged”. Nobody believes this.', t3 + 5.0, 30)
+
+const t4 = scene('betrayal', 10)
+cue(t4, 'static'); cue(t4 + 0.3, 'blip')
+const T_dm = type('dm', 'INTERCEPT 07: PRIVATE CHANNEL. Pacifica and Qadira sign “Oil for Chips”.', t4 + 0.8, 30)
+const T_dm2 = type('dm2', 'Ten months later, the Sultan raises tariffs to 45%.', t4 + 4.2, 30)
+stamp('TREATY BROKEN', t4 + 6.6, W / 2 + 360, 760, -0.1)
+const T_dm3 = type('dm3', 'Treaties are enforced. Betrayal is public.', t4 + 7.4, 30)
+
+const t5 = scene('coalition', 8)
+cue(t5, 'static'); cue(t5 + 0.3, 'blip')
+const T_co = type('co', 'INTERCEPT 09: A COALITION IS FORMING.', t5 + 0.6, 30)
+const T_co2 = type('co2', 'Group chats. Summits. Sanctions within the hour.', t5 + 3.4, 30)
+
+const t6 = scene('war', 10)
+cue(t6, 'static'); cue(t6 + 0.2, 'hit')
+const T_w1 = type('w1', 'MONTH 13: Qadira invades the Persian Imperium.', t6 + 0.6, 30)
+const T_w2 = type('w2', 'MONTH 22: Qadira no longer exists.', t6 + 4.4, 30)
+stamp('DISSOLVED', t6 + 6.8, W / 2, 560, -0.14, RED, 120)
+cue(t6 + 6.8, 'hit')
+
+const t7 = scene('domestic', 12)
+cue(t7, 'static')
+const MONT = [
+  { img: 'gov-power', label: 'Win elections. Or lose them and watch your rivals govern.', st: 'ELECTIONS' },
+  { img: 'gov-overview', label: 'Coups. Credit bubbles. Pension time bombs.', st: 'RISK' },
+  { img: 'why-growth', label: 'Every number has a cause. Ask why.', st: 'CAUSALITY' },
+  { img: 'gov-dynamics', label: 'Policies age. The climate warms. The robots arrive.', st: 'FORECAST' },
+]
+MONT.forEach((m, i) => { m.t = t7 + i * 3; m.T = type('m' + i, m.label, m.t + 0.4, 34); cue(m.t, 'static') })
+
+const t8 = scene('straits', 8)
+cue(t8, 'static'); cue(t8 + 0.3, 'blip')
+const T_s1 = type('s1', 'INTERCEPT 12: “Is the Straits Republic run by an AI?”', t8 + 0.6, 30)
+const T_s2 = type('s2', 'Yes. Hi. — Premier Claude', t8 + 4.4, 18)
+
+const t9 = scene('end', 9)
+cue(t9, 'static'); cue(t9 + 0.4, 'drone')
+const T_e1 = type('e1x', 'YOUR NATION AWAITS.', t9 + 1.2, 18)
+stamp('APPROVED', t9 + 6.2, W / 2 + 470, 790, -0.16, '#2b8a3e', 84)
+cue(t9 + 4.8, 'hit')
+const DURATION = D
+window.DURATION = DURATION
+window.SFX = SFX.sort((a, b) => a.t - b.t)
+
+// ── frame renderer ──
+function renderAt(t) {
+  x.setTransform(1, 0, 0, 1, 0, 0); x.globalAlpha = 1; x.filter = 'none'
+  x.fillStyle = '#050505'; x.fillRect(0, 0, W, H)
+  const [o0] = S.open
+  if (t < S.earth[0]) {
+    paper(t)
+    x.fillStyle = 'rgba(0,0,0,0.08)'; x.fillRect(120, 140, W - 240, 4)
+    text(shown(T_open1, t), 160, 300, `64px ${TYPE}`, INK)
+    text(shown(T_open2, t), 160, 400, `48px ${TYPE}`, '#5a4a32')
+    const l3 = wrap(shown(T_open3, t), 1500, `56px ${TYPE}`)
+    l3.forEach((l, i) => text(l, 160, 540 + i * 74, `56px ${TYPE}`, INK))
+    redact(1010, 360, 330, 52, t, o0 + 3.2)
+    stamps.filter(s => s.t0 < S.earth[0]).forEach(s => drawStamp(s, t))
+    grain(t, 0.05)
+    return
+  }
+  if (t < S.agents[0]) {
+    const i = Math.floor(clamp((t - S.earth[0]) / 7, 0, 0.999) * SPIN)
+    feed(IMG['spin' + i], t, S.earth[0], S.earth[1], { z0: 1.0, z1: 1.08, label: 'ORBITAL FEED · EARTH', coords: 'GLOBAL SURVEY 1999-01-01 00:00Z', stamp: 'PROVINCES 1915 · POP 6.07B' })
+    lowerThird(T_earth, t)
+    grain(t)
+    return
+  }
+  if (t < S.opec[0]) {
+    paper(t); header(t, 'PERSONNEL FILES')
+    text(shown(T_agents, t), 100, 150, `46px ${TYPE}`, INK)
+    AGENTS.forEach((a, i) => {
+      if (t < a.t) return
+      const p = ease(prog(t, a.t, a.t + 0.45))
+      const cx = 100 + i * 440, cy = 220 + (1 - p) * 80
+      x.save(); x.globalAlpha = p; x.translate(cx + 200, cy + 380); x.rotate((i % 2 ? 1 : -1) * 0.025); x.translate(-200, -380)
+      x.shadowColor = 'rgba(0,0,0,0.35)'; x.shadowBlur = 25; x.shadowOffsetY = 10
+      x.fillStyle = '#f7f1e3'; x.fillRect(0, 0, 400, 760); x.shadowColor = 'transparent'
+      x.fillStyle = a.color; x.fillRect(30, 30, 340, 300)
+      x.fillStyle = 'rgba(0,0,0,0.25)'; x.beginPath(); x.arc(200, 150, 70, 0, Math.PI * 2); x.fill(); x.fillRect(100, 225, 200, 105)
+      text('SUBJECT', 30, 380, `600 18px ${MONO}`, '#8a7b5c')
+      wrap(a.name, 340, `34px ${TYPE}`).forEach((l, k) => text(l, 30, 420 + k * 38, `34px ${TYPE}`, INK))
+      text('CODENAME', 30, 520, `600 18px ${MONO}`, '#8a7b5c')
+      text(a.user, 30, 556, `600 28px ${MONO}`, RED)
+      text('ASSESSMENT', 30, 610, `600 18px ${MONO}`, '#8a7b5c')
+      wrap(shown(a.T, t), 340, `26px ${TYPE}`).forEach((l, k) => text(l, 30, 646 + k * 32, `26px ${TYPE}`, INK))
+      text(a.status, 370, 740, `600 18px ${MONO}`, a.status === 'ACTIVE' ? '#2b8a3e' : RED, 'right')
+      x.restore()
+    })
+    grain(t, 0.04)
+    return
+  }
+  if (t < S.betrayal[0]) {
+    paper(t); header(t, 'INTERCEPT 03 · CAFÉ')
+    const img = IMG['comms-opec'], r = META.rects.opecMsgs ?? { x: 560, y: 100, w: 1300, h: 800 }
+    photo(img, r.x, r.y, r.w, Math.min(r.h, 760), 160, 190, 1050, Math.min(r.h, 760) * 1050 / r.w, -0.02, t, S.opec[0] + 0.4)
+    const s = wrap(shown(T_opec, t), 560, `34px ${TYPE}`); s.forEach((l, i) => text(l, 1300, 260 + i * 46, `34px ${TYPE}`, INK))
+    const n = wrap(shown(T_opecNote, t), 560, `30px ${TYPE}`); n.forEach((l, i) => text(l, 1300, 640 + i * 42, `30px ${TYPE}`, RED))
+    grain(t, 0.04)
+    return
+  }
+  if (t < S.coalition[0]) {
+    paper(t); header(t, 'INTERCEPT 07 · DIRECT MESSAGE')
+    const img = IMG['comms-dm'], r = META.rects.dmMsgs ?? { x: 560, y: 100, w: 1300, h: 800 }
+    photo(img, r.x, r.y, r.w, r.h, 140, 170, 1050, r.h * 1050 / r.w, 0.015, t, S.betrayal[0] + 0.4)
+    wrap(shown(T_dm, t), 560, `34px ${TYPE}`).forEach((l, i) => text(l, 1300, 250 + i * 46, `34px ${TYPE}`, INK))
+    wrap(shown(T_dm2, t), 560, `34px ${TYPE}`).forEach((l, i) => text(l, 1300, 470 + i * 46, `34px ${TYPE}`, INK))
+    wrap(shown(T_dm3, t), 560, `34px ${TYPE}`).forEach((l, i) => text(l, 1300, 900 + i * 46, `34px ${TYPE}`, RED))
+    stamps.filter(s => s.t0 >= S.betrayal[0] && s.t0 < S.betrayal[1]).forEach(s => drawStamp(s, t))
+    grain(t, 0.04)
+    return
+  }
+  if (t < S.war[0]) {
+    paper(t); header(t, 'INTERCEPT 09 · GROUP ROOM')
+    const img = IMG['comms-coalition'], r = META.rects.coalMsgs ?? { x: 560, y: 100, w: 1300, h: 800 }
+    photo(img, r.x, r.y, r.w, Math.min(r.h, 640), 760, 170, 1040, Math.min(r.h, 640) * 1040 / r.w, -0.018, t, S.coalition[0] + 0.3)
+    wrap(shown(T_co, t), 560, `40px ${TYPE}`).forEach((l, i) => text(l, 100, 250 + i * 54, `40px ${TYPE}`, INK))
+    wrap(shown(T_co2, t), 560, `34px ${TYPE}`).forEach((l, i) => text(l, 100, 470 + i * 46, `34px ${TYPE}`, RED))
+    grain(t, 0.04)
+    return
+  }
+  if (t < S.domestic[0]) {
+    const late = t > S.war[0] + 4.2
+    feed(late ? IMG['map-diplomatic'] : IMG['gulf'], t, S.war[0], S.war[1], { z0: late ? 1.0 : 1.05, z1: late ? 1.15 : 1.35, cx: 0.5, cy: 0.5, label: 'SAT FEED 3 · PERSIAN GULF', coords: 'LAT 25.2048 LON 55.2708', stamp: late ? 'SIGNAL LOST' : 'TARGET ACQUIRED', target: late ? null : [W / 2, H / 2],
+      filter: late ? 'grayscale(1) contrast(1.3) brightness(0.6)' : undefined })
+    lowerThird(late ? T_w2 : T_w1, t)
+    stamps.filter(s => s.t0 >= S.war[0] && s.t0 < S.war[1]).forEach(s => drawStamp(s, t))
+    grain(t, 0.09)
+    return
+  }
+  if (t < S.straits[0]) {
+    const i = clamp(Math.floor((t - S.domestic[0]) / 3), 0, MONT.length - 1), m = MONT[i]
+    feed(IMG[m.img], t, m.t, m.t + 3, { z0: 1.0, z1: 1.1, filter: 'contrast(1.05) brightness(0.9) saturate(0.85)', label: 'DOMESTIC INTELLIGENCE', coords: 'SOURCE: GOVERNMENT TERMINAL', stamp: m.st })
+    lowerThird(m.T, t)
+    grain(t, 0.06)
+    return
+  }
+  if (t < S.end[0]) {
+    paper(t); header(t, 'INTERCEPT 12 · CAFÉ')
+    const img = IMG['comms-straits']
+    const r = META.rects.opecMsgs ?? { x: 720, y: 234, w: 790, h: 630 }
+    if (img) photo(img, r.x, r.y, r.w, Math.min(r.h, 520), 140, 200, 1040, Math.min(r.h, 520) * 1040 / r.w, -0.02, t, S.straits[0] + 0.3)
+    wrap(shown(T_s1, t), 560, `34px ${TYPE}`).forEach((l, i) => text(l, 1260, 280 + i * 46, `34px ${TYPE}`, INK))
+    const s2 = shown(T_s2, t)
+    if (s2) { x.save(); x.translate(1260, 640); x.rotate(-0.04); text(s2, 0, 0, `44px ${TYPE}`, '#c2410c'); x.restore() }
+    grain(t, 0.04)
+    return
+  }
+  // end card
+  const e0 = S.end[0]
+  x.fillStyle = '#060606'; x.fillRect(0, 0, W, H)
+  const night = IMG['globe-night']
+  if (night) { x.save(); x.globalAlpha = 0.45 * ease(prog(t, e0, e0 + 1.5)); const z = 1.05 + 0.05 * prog(t, e0, e0 + 9); x.drawImage(night, (W - W * z) / 2, (H - H * z) / 2, W * z, H * z); x.restore() }
+  const s = shown(T_e1, t)
+  text(s, W / 2, 380, `72px ${TYPE}`, PAPER, 'center')
+  if (t > e0 + 3.2) {
+    const p = ease(prog(t, e0 + 3.2, e0 + 4.4))
+    x.save(); x.globalAlpha = p
+    x.font = `900 220px ${SANS}`; x.textAlign = 'center'; x.fillStyle = '#fff'; x.letterSpacing = '40px'
+    x.fillText('STATES', W / 2 + 20, 650)
+    x.restore()
+    text('REAL-TIME GEOPOLITICS · REAL PLAYERS · 1999 → ∞', W / 2, 740, `600 30px ${MONO}`, `rgba(255,212,59,${p})`, 'center')
+    text('Found your nation in your browser.', W / 2, 800, `500 30px ${SANS}`, `rgba(255,255,255,${0.8 * p})`, 'center')
+  }
+  stamps.filter(s => s.t0 >= e0).forEach(s => drawStamp(s, t))
+  grain(t, 0.05)
+}
+window.renderAt = renderAt
+let META = { rects: {} }
+;(async () => {
+  try { META = await (await fetch(A + 'meta.json')).json() } catch {}
+  await Promise.all([
+    ...files.map(async f => { IMG[f] = await load(A + f + '.jpg') }),
+    ...Array.from({ length: SPIN }, async (_, i) => { IMG['spin' + i] = await load(`${A}spin/${String(i).padStart(4, '0')}.jpg`) }),
+  ])
+  await document.fonts.ready
+  await Promise.all([document.fonts.load(`40px ${TYPE}`), document.fonts.load(`600 20px ${MONO}`), document.fonts.load(`900 40px ${SANS}`)])
+  renderAt(0)
+  window.ready = true
+})()
+</script></body></html>
