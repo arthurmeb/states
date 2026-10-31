@@ -140,7 +140,8 @@ export function nationDay(g: Game, n: Nation, dt: number) {
   n.drivers.inflation = drv(infl)
   const policyRate = cb === 'independent' ? Math.max(0.25, 2 + 1.3 * (n.inflation - 2)) : cb === 'coordinated' ? Math.max(0.5, 2 + 0.7 * (n.inflation - 2)) : 1.5
   const debtPct = (debt / (gdp * 12)) * 100
-  const rating = clamp(19 - debtPct / 14 - Math.max(0, n.inflation - 8) / 2.5 + (n.stocks.inst - 50) / 8 + (n.stability - 50) / 12 - g.sanctionPressure(n.id) * 6 - (n.wars.length ? 1 : 0), 0, 19)
+  // markets price the deficit as well as the stock of debt
+  const rating = clamp(19 - debtPct / 14 - Math.max(0, -deficitPct - 3) / 1.5 - Math.max(0, n.inflation - 8) / 2.5 + (n.stocks.inst - 50) / 8 + (n.stability - 50) / 12 - g.sanctionPressure(n.id) * 6 - (n.wars.length ? 1 : 0), 0, 19)
   n.idx.credit = rating
   n.interest = clamp(approach(n.interest, policyRate * 0.5 + 1 + Math.max(0, (debtPct - 60) / 20) + (19 - rating) * 0.35 - ruleCredibility(n), 0.2 * dt), 0, 30)
   // sovereign default: creditors take a 60% haircut, the nation is shut out of markets

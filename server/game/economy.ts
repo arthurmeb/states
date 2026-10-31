@@ -315,6 +315,31 @@ export function initProvinces(g: Game) {
     g.off[off + OFF.happy] = 0
     g.off[off + OFF.happy] = happinessTarget(g, pr.id, ctx, b) - happinessRaw(g, pr.id, ctx)
   }
+  fillLockedBias(g)
+}
+
+/**
+ * A sector that is still locked in a province (media in a poor country, say) has no real share to calibrate
+ * against, so its bias was left at 1 — far above what the same sector gets where it exists, which made it
+ * swallow the economy the moment it unlocked. Locked sectors take the sector's typical calibrated bias
+ * instead (pop-weighted geometric mean). Idempotent, so older saves are repaired on load.
+ */
+export function fillLockedBias(g: Game) {
+  const logSum = new Float64Array(NS), wSum = new Float64Array(NS)
+  for (const pr of g.P) {
+    const w = g.prov[pr.id].pop + 1
+    for (let s = 0; s < NS; s++) {
+      const v = g.bias[pr.id * NS + s]
+      if (DOMESTIC.has(SECTORS[s].id) || v === 1 || !(v > 0)) continue
+      logSum[s] += Math.log(v) * w; wSum[s] += w
+    }
+  }
+  for (let s = 0; s < NS; s++) {
+    if (DOMESTIC.has(SECTORS[s].id) || !wSum[s]) continue
+    const typical = Math.fround(Math.exp(logSum[s] / wSum[s]))
+    if (typical === 1) continue
+    for (const pr of g.P) if (g.bias[pr.id * NS + s] === 1) g.bias[pr.id * NS + s] = typical
+  }
 }
 
 /** Real WHR-calibrated happiness for the province's country (Cantril 0-10). */
@@ -404,7 +429,8 @@ export function provinceEconomy(g: Game, pid: number, ctx: Ctx, dt: number) {
   const decay = Math.pow(0.9995, dt)
   for (const k of ['infra', 'edu', 'health', 'safety', 'housing', 'pollution'] as const) g.off[off + OFF[k]] *= decay
   p.infra = clamp(approach(p.infra, tg.infra + g.off[off], 0.012 * dt), 1, 100)
-  p.edu = clamp(approach(p.edu, tg.edu + g.off[off + 1], 0.008 * dt), 1, 100)
+  // schooling reaches the workforce one cohort at a time: human capital moves over decades, not years
+  p.edu = clamp(approach(p.edu, tg.edu + g.off[off + 1], 0.0025 * dt), 1, 100)
   p.health = clamp(approach(p.health, tg.health + g.off[off + 2], 0.015 * dt), 1, 100)
   p.safety = clamp(approach(p.safety, tg.safety + g.off[off + 3], 0.05 * dt), 1, 100)
   p.housing = clamp(approach(p.housing, tg.housing + g.off[off + 4], 0.03 * dt), 1, 100)

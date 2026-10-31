@@ -9,7 +9,7 @@ import { claimCost, DAYS_PER_MONTH, PROTECTION_DAYS, TRUCE_DAYS, DEMOCRATIC, dat
 import { loadWorldData, baselineOf, type Baseline } from './data'
 import type { Nation, Prov } from './model'
 import { computeMods, defaultBudget, defaultPolicy, M } from './mods'
-import { setFrontier, staticFit, initProvinces, provinceEconomy, statelessCtx, nationCtx, NOFF, type Ctx } from './economy'
+import { setFrontier, staticFit, initProvinces, fillLockedBias, provinceEconomy, statelessCtx, nationCtx, NOFF, type Ctx } from './economy'
 import { aggregate, nationDay, calibrateNation } from './nation'
 import { politicsDay, unrestDay, blocWeights } from './politics'
 import { computeCond } from './conditions'
@@ -403,7 +403,7 @@ export class Game {
     const data = {
       v: SAVE_VERSION, tick: this.tick, nextId: this.nextId, seq: this.seq,
       prov: this.prov.map(p => ({ ...p, jobs: p.jobs.map(r2), output: p.output.map(x => +x.toPrecision(4)) })),
-      bias: Array.from(this.bias, r2), off: Array.from(this.off, r2),
+      bias: Array.from(this.bias, r2), biasFilled: true, off: Array.from(this.off, r2),
       nations: [...this.nations.values()], battles: this.battles, news: this.news, chat: this.chat, proposals: this.proposals,
       players: this.players, accounts: this.accounts, comms: this.comms, deals: this.deals, prices: this.prices, demandShare: this.demandShare, sell: [...this.sell], tradeBlocs: this.tradeBlocs,
       games: this.games, gamesHosted: [...this.gamesHosted], aggressors: [...this.aggressors], worldGdppc: this.worldGdppc, trends: this.trends,
@@ -426,6 +426,7 @@ export class Game {
       this.tick = d.tick; this.nextId = d.nextId; this.seq = d.seq
       this.prov = d.prov
       this.bias = Float32Array.from(d.bias); this.off = Float32Array.from(d.off)
+      if (!d.biasFilled) fillLockedBias(this) // saves from before locked sectors were calibrated
       for (const n of d.nations as Nation[]) { n.ref ??= {}; n.stockOff ??= {}; n.projectNational ??= {}; n.log ??= []; this.nations.set(n.id, n) }
       Object.assign(this, { battles: d.battles, news: d.news, chat: d.chat, proposals: d.proposals, players: d.players, demandShare: d.demandShare, tradeBlocs: d.tradeBlocs, games: d.games, worldGdppc: d.worldGdppc })
       this.prices.splice(0, NS, ...d.prices)

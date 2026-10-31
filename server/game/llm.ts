@@ -1,8 +1,8 @@
-// A self-hosted language model (e.g. Ollama running Qwen2.5 on the same server) compiles free-text
-// deals into the game's clause primitives. Any OpenAI-compatible endpoint works:
-//   LLM_URL   = http://ollama:11434/v1   (Coolify service name, or https://api.deepseek.com/v1, …)
-//   LLM_MODEL = qwen2.5:7b-instruct
-//   LLM_KEY   = (only for hosted APIs)
+// A language model compiles free-text deals into the game's clause primitives. Any OpenAI-compatible
+// endpoint works:
+//   LLM_URL   = https://api.openai.com/v1   (or http://ollama:11434/v1, https://api.deepseek.com/v1, …)
+//   LLM_MODEL = gpt-4.1-mini                (or qwen2.5:7b-instruct on Ollama)
+//   LLM_KEY   = the API key (not needed for a local Ollama)
 // Output is constrained to a JSON schema, so even small models stay on the rails.
 import { CLAUSES } from '../../shared/deals'
 
@@ -11,8 +11,12 @@ const MODEL = process.env.LLM_MODEL ?? 'qwen2.5:7b-instruct'
 export const llmEnabled = () => !!URL
 
 const KINDS = Object.keys(CLAUSES)
+// Strict structured output (OpenAI and others) needs every field listed and required, so the
+// optional clause fields are nullable and nulls are dropped before the deal is normalised.
+const OPT: Record<string, string> = { from: 'string', amount: 'number', monthly: 'boolean', months: 'number', rate: 'number', years: 'number', sector: 'string', share: 'number', discount: 'number', province: 'string', policy: 'string', option: 'string', text: 'string' }
 const SCHEMA = {
   type: 'object',
+  additionalProperties: false,
   properties: {
     title: { type: 'string' },
     notes: { type: 'string' },
@@ -20,21 +24,16 @@ const SCHEMA = {
       type: 'array',
       items: {
         type: 'object',
-        properties: {
-          kind: { type: 'string', enum: KINDS },
-          from: { type: 'string', enum: ['a', 'b'] },
-          amount: { type: 'number' }, monthly: { type: 'boolean' }, months: { type: 'number' },
-          rate: { type: 'number' }, years: { type: 'number' },
-          sector: { type: 'string' }, share: { type: 'number' }, discount: { type: 'number' },
-          province: { type: 'string' }, policy: { type: 'string' }, option: { type: 'string' },
-          text: { type: 'string' },
-        },
-        required: ['kind'],
+        additionalProperties: false,
+        properties: { kind: { type: 'string', enum: KINDS }, ...Object.fromEntries(Object.entries(OPT).map(([k, t]) => [k, { type: [t, 'null'] }])) },
+        required: ['kind', ...Object.keys(OPT)],
       },
     },
   },
   required: ['title', 'clauses', 'notes'],
 }
+/** Reasoning models (gpt-5*, o1/o3/o4…) reject a custom temperature and count thinking against the token budget. */
+const REASONING = /^(gpt-5|o\d)/i.test(MODEL)
 
 export interface CompileContext {
   a: string; b: string
@@ -47,7 +46,7 @@ export interface CompileContext {
 function prompt(c: CompileContext) {
   return `You turn agreements between two nations in a strategy game into a JSON list of clauses.
 Side "a" is ${c.a} (the proposer). Side "b" is ${c.b}.${c.atWar ? ' They are currently at war.' : ''}
-Clause kinds (use only these fields):
+Clause kinds (set the fields each kind uses; set every other field to null):
 - payment {from, amount ($ billions), monthly (bool), months}
 - loan {from (the lender), amount ($B), rate (% per year), years}
 - tariff {from (the side that limits its tariff), rate (max %), years}
@@ -75,16 +74,21 @@ export async function compileDeal(text: string, c: CompileContext): Promise<{ ti
     method: 'POST',
     headers: { 'content-type': 'application/json', ...(process.env.LLM_KEY ? { authorization: `Bearer ${process.env.LLM_KEY}` } : {}) },
     body: JSON.stringify({
-      model: MODEL, temperature: 0.1, max_tokens: 900,
+      model: MODEL, ...(REASONING ? { max_completion_tokens: 6000 } : { temperature: 0.1, max_tokens: 900 }),
       messages: [{ role: 'system', content: prompt(c) }, { role: 'user', content: text.slice(0, 1500) }],
       response_format: { type: 'json_schema', json_schema: { name: 'deal', schema: SCHEMA, strict: true } },
     }),
     signal: AbortSignal.timeout(180_000),
   })
-  if (!res.ok) throw new Error(`The model server answered ${res.status}.`)
+  if (!res.ok) {
+    const why = await res.text().catch(() => '')
+    console.warn('[llm]', res.status, why.slice(0, 300))
+    throw new Error(`The model server answered ${res.status}.`)
+  }
   const j = await res.json() as { choices?: { message?: { content?: string } }[] }
   const raw = j.choices?.[0]?.message?.content ?? ''
   const json = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)
   const out = JSON.parse(json)
-  return { title: String(out.title ?? 'Agreement'), clauses: Array.isArray(out.clauses) ? out.clauses : [], notes: String(out.notes ?? '') }
+  const clauses = (Array.isArray(out.clauses) ? out.clauses : []).map((c: Record<string, unknown>) => Object.fromEntries(Object.entries(c).filter(([, v]) => v !== null)))
+  return { title: String(out.title ?? 'Agreement'), clauses, notes: String(out.notes ?? '') }
 }
