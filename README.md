@@ -98,11 +98,22 @@ policy commitments, non-aggression, alliances, trade pacts, aid, peace, and free
 simulation every month (`server/game/deals.ts`); breaking one is public, costs legitimacy and diplomatic standing,
 and gives the victim a just cause for war (no aggressor stigma).
 
-Players can also **write any deal in plain words**: a self-hosted model compiles it into clauses, constrained to a
-JSON schema; anything it can't express becomes a public promise. Set it up in Coolify:
-1. Add a service from the image `ollama/ollama` (name it `ollama`, volume at `/root/.ollama`, same network as STATES).
-2. Pull a model once, from the service's terminal: `ollama pull qwen2.5:7b-instruct` (8 GB RAM; use `qwen2.5:3b-instruct`
-   on 4 GB, `qwen2.5:14b-instruct` on 16 GB+).
-3. On the STATES app set `LLM_URL=http://ollama:11434/v1` and `LLM_MODEL=qwen2.5:7b-instruct`, then redeploy.
-Any OpenAI-compatible endpoint works (`LLM_KEY` for hosted APIs such as DeepSeek or Moonshot/Kimi). Without
-`LLM_URL`, players build deals clause by clause.
+Players can also **write any deal in plain words**: a language model compiles it into clauses, constrained to a
+JSON schema; anything it can't express becomes a public promise. Any OpenAI-compatible endpoint works. In Coolify,
+open the STATES app → **Environment Variables**, then redeploy:
+- **OpenAI (simplest):** `LLM_URL=https://api.openai.com/v1`, `LLM_MODEL=gpt-4.1-mini`, `LLM_KEY=<your key>`.
+- **Self-hosted:** add an `ollama/ollama` service (name `ollama`, volume at `/root/.ollama`, same network), run
+  `ollama pull qwen2.5:7b-instruct` in its terminal (8 GB RAM), then `LLM_URL=http://ollama:11434/v1` and
+  `LLM_MODEL=qwen2.5:7b-instruct`.
+
+Without `LLM_URL`, players build deals clause by clause.
+
+## The World Committee
+Every nation has a seat (`shared/committee.ts`, `server/game/committee.ts`). Governments table resolutions
+(sanctions, condemnations, binding ceasefires, a climate accord, a development fund, a free-trade round, or a
+free-text declaration), delegates address the floor, and votes stay open for a game month. Votes weigh by global
+influence; a resolution passes when yes outweighs no and carries at least 20% of all votes. The five nations with
+the most comprehensive national power form a security council whose "no" vetoes security resolutions. Whatever
+passes is enforced: world sanctions bite, ceasefires end wars, and nations that break an accord they voted for are
+named and shamed. AI nations vote on interest and ideology and table resolutions of their own
+(`npx jiti scripts/test-committee.ts 6` runs a headless six-year session).

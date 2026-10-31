@@ -6,6 +6,7 @@ function onKey(e: KeyboardEvent) {
   if (e.key !== 'Escape') return
   if (ui.why) ui.why = null
   else if (ui.comms) ui.comms = false
+  else if (ui.committee) ui.committee = false
   else if (ui.provinceView != null) ui.provinceView = null
   else if (ui.gov) ui.gov = null
   else if (ui.showIssue) ui.showIssue = false
@@ -41,6 +42,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     <ProvinceView v-if="ui.provinceView != null" :key="'pv' + ui.provinceView" />
     <IssueModal v-if="ui.showIssue && snap?.issue" />
     <Comms />
+    <Committee />
     <WhyPanel />
     <Toasts />
     <nav class="tabbar glass">
@@ -49,6 +51,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
       <button v-if="snap?.issue" class="hot" @click="ui.showIssue = true"><span>📜</span>Issue</button>
       <button :class="{ on: ui.sheet === 'wire' && !picked }" @click="tab('wire')"><span>📰</span>News</button>
       <button @click="ui.comms = true"><span>💬</span>Comms</button>
+      <button @click="ui.committee = true"><span>🌐</span>Committee</button>
       <button :class="{ on: ui.sheet === 'modes' && !picked }" @click="tab('modes')"><span>🎨</span>Layers</button>
     </nav>
     <div v-if="!ui.connected" class="offline glass">Connecting to the world server…</div>

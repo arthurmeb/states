@@ -20,6 +20,7 @@ import { initPower, powerWeek, powerMonth, costCtx, spendPC, partyName } from '.
 import { computeRisks } from './risks'
 import { newComms, syncBlocRooms, type Comms } from './comms'
 import { newDeals, dealsMonth, justCause, type DealStore } from './deals'
+import { newCommittee, committeeDay, committeeMonth, committeeSanctions, committeeView, type CommitteeStore } from './committee'
 import type { RoomMsg } from '../../shared/types'
 import type { Account } from './accounts'
 import { policyYears } from './mods'
@@ -61,6 +62,7 @@ export class Game {
   chat: ChatMsg[] = []
   comms: Comms = newComms()
   deals: DealStore = newDeals()
+  committee: CommitteeStore = newCommittee()
   /** deal messages posted this tick (delivered by the server loop) */
   dealMsgs: RoomMsg[] = []
   proposals: Proposal[] = []
@@ -164,7 +166,7 @@ export class Game {
   sanctionPressure(id: number) {
     let s = 0, tot = 0
     for (const n of this.nations.values()) { tot += n.gdp; if (n.sanctions.includes(id) || n.embargoes.includes(id)) s += n.gdp }
-    return tot ? clamp((s / tot) * 2.5, 0, 1) : 0
+    return clamp((tot ? (s / tot) * 2.5 : 0) + committeeSanctions(this, id), 0, 1)
   }
   gamesBonus(id: number) { const t = this.gamesHosted.get(id); return t == null ? 0 : Math.max(0, 25 - (this.tick - t) / 72) }
   isBlocLeader(id: number) {
@@ -237,7 +239,7 @@ export class Game {
     for (const k of Object.keys(this.players)) this.players[k] = null
     this.nations.clear()
     Object.assign(this, {
-      tick: 0, nextId: 1, seq: 1, battles: [], results: [], news: [], chat: [], comms: newComms(), deals: newDeals(), proposals: [], tradeBlocs: [], worldGdppc: 15000, avgTradablePrice: 1,
+      tick: 0, nextId: 1, seq: 1, battles: [], results: [], news: [], chat: [], comms: newComms(), deals: newDeals(), committee: newCommittee(), proposals: [], tradeBlocs: [], worldGdppc: 15000, avgTradablePrice: 1,
       games: { edition: 1, nextTick: 48 * DAYS_PER_MONTH, host: null, hostCity: null, bidsOpen: false, bids: [], lastHost: null, lastMedals: [] },
     })
     this.prices.fill(1); this.sell.clear(); this.gamesHosted.clear(); this.aggressors.clear(); this.influence.clear(); this.aid.clear()
@@ -405,7 +407,7 @@ export class Game {
       prov: this.prov.map(p => ({ ...p, jobs: p.jobs.map(r2), output: p.output.map(x => +x.toPrecision(4)) })),
       bias: Array.from(this.bias, r2), biasFilled: true, off: Array.from(this.off, r2),
       nations: [...this.nations.values()], battles: this.battles, news: this.news, chat: this.chat, proposals: this.proposals,
-      players: this.players, accounts: this.accounts, comms: this.comms, deals: this.deals, prices: this.prices, demandShare: this.demandShare, sell: [...this.sell], tradeBlocs: this.tradeBlocs,
+      players: this.players, accounts: this.accounts, comms: this.comms, deals: this.deals, committee: this.committee, prices: this.prices, demandShare: this.demandShare, sell: [...this.sell], tradeBlocs: this.tradeBlocs,
       games: this.games, gamesHosted: [...this.gamesHosted], aggressors: [...this.aggressors], worldGdppc: this.worldGdppc, trends: this.trends,
     }
     writeFileSync(this.savePath + '.tmp', JSON.stringify(data))
@@ -436,6 +438,7 @@ export class Game {
       this.accounts = d.accounts ?? {}
       this.comms = d.comms ?? newComms()
       this.deals = d.deals ?? newDeals()
+      this.committee = d.committee ?? newCommittee()
       for (const p of this.prov) p.res ??= { oil: 1, metals: 1 }
       for (const n of this.nations.values()) this.migrate(n)
       this.updateFrontier()
@@ -503,6 +506,7 @@ export class Game {
     }
     // governments of other parties run players' nations while they are out of office
     for (const n of this.nations.values()) if (n.alive && !n.ai && n.power.office !== 'governing' && (this.tick + n.id) % 7 === 0) caretakerWeek(this, n)
+    committeeDay(this)
     if (this.tick % DAYS_PER_MONTH === 0) this.monthly()
   }
 
@@ -520,6 +524,7 @@ export class Game {
     }
     trendsMonth(this)
     dealsMonth(this)
+    committeeMonth(this)
     worldMonth(this)
     this.spawnNewStates()
     this.save()
@@ -1028,6 +1033,7 @@ export class Game {
       tradeBlocs: this.tradeBlocs, trade: tr.slice(0, 160), battles: this.battles, results: this.results, news: this.news.slice(0, 60), games: this.games,
       me: me ? this.privateView(me) : null,
       myProvinces: me ? this.owned(me.id).map(pid => this.provinceDetail(pid)) : [],
+      committee: committeeView(this),
       proposals: me ? this.proposals.filter(p => p.to === me.id || p.from === me.id) : [],
       issue: me?.issue ? { id: me.issue.id, title: me.issue.title, text: me.issue.text, options: me.issue.options, expires: me.issue.expires } : null,
     }

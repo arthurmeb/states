@@ -16,6 +16,9 @@ const ui = reactive({
   rooms: [] as RoomView[],
   msgs: {} as Record<number, RoomMsg[]>,
   comms: false,
+  /** the World Committee panel, and the resolution open in it */
+  committee: false,
+  resolution: null as number | null,
   room: null as number | null,
   /** treaties involving my nation, whether the server can draft free text, and the latest draft */
   deals: [] as Deal[],

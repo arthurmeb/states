@@ -31,6 +31,8 @@ const lead = computed(() => {
   return poll.value - Math.max(0, ...Object.entries(P.votes).filter(([k]) => k !== mine && !P.coalition.includes(k)).map(([, v]) => v))
 })
 const monthsTo = computed(() => (me.value?.nextElection != null && snap.value ? Math.max(0, Math.round((me.value.nextElection - snap.value.tick) / DAYS_PER_MONTH)) : null))
+/** Open committee votes my government hasn't cast yet. */
+const pending = computed(() => (me.value?.power.office === 'governing' ? snap.value?.committee.list.filter(r => r.status === 'open' && !r.votes[me.value!.id]).length ?? 0 : 0))
 function home() { const m = me.value; const p = m && provinces.value[m.capital]; if (p) fly(p.lat, p.lon, 4) }
 </script>
 
@@ -72,6 +74,7 @@ function home() { const m = me.value; const p = m && provinces.value[m.capital];
       <button v-for="[x, ic, l] in SPEEDS" :key="x" :class="{ on: snap.speed === x }" :title="l" @click="send({ t: 'speed', x })">{{ ic }}<small>{{ l }}</small></button>
       <button title="Admin: wipe the world and restart the clock" @click="resetWorld">⟲<small>Reset</small></button>
     </div>
+    <button class="btn cmte" title="The World Committee: resolutions, votes and the security council" @click="ui.committee = true">🌐 Committee<i v-if="pending" class="dot">{{ pending }}</i></button>
     <a class="btn guide" href="/guide" target="_blank" title="How to play, references and data sources">📖 Guide</a>
     <div class="toggles">
       <button class="tg" :class="{ on: ui.basemap === 'night' }" title="Day / night lights" @click="ui.basemap = ui.basemap === 'day' ? 'night' : 'day'">{{ ui.basemap === 'night' ? '🌙' : '☀' }}</button>
@@ -109,6 +112,8 @@ function home() { const m = me.value; const p = m && provinces.value[m.capital];
 @keyframes glow { 50% { box-shadow: 0 0 14px rgba(255, 212, 59, 0.45); } }
 .toggles { display: flex; gap: 4px; }
 .guide { text-decoration: none; }
+.cmte { position: relative; white-space: nowrap; }
+.dot { font-style: normal; margin-left: 5px; background: var(--accent); color: #000; border-radius: 8px; padding: 0 5px; font-size: 10px; font-weight: 800; }
 .speed { display: flex; gap: 2px; padding: 2px; border: 1px dashed rgba(255, 212, 59, .45); border-radius: 7px; }
 .speed button { background: none; border: 0; border-radius: 5px; padding: 3px 6px; font-size: 12px; color: var(--muted); display: flex; gap: 3px; align-items: center; }
 .speed button small { font-size: 9.5px; font-weight: 700; }
@@ -127,5 +132,6 @@ function home() { const m = me.value; const p = m && provinces.value[m.capital];
   .govbtn { padding: 7px 9px; }
   .guide { padding: 6px 8px; font-size: 0; }
   .guide::before { content: '📖'; font-size: 14px; }
+  .cmte { display: none; }
 }
 </style>

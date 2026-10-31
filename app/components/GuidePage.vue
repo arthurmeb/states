@@ -5,6 +5,7 @@ import { SECTORS, type SectorReq } from '~~/shared/sectors'
 import { POLICIES, POLICY_CATEGORIES, BUDGET, LOCAL_POLICIES, BLOCS, type ChoicePolicy, type SliderPolicy } from '~~/shared/policies'
 import { PROJECTS } from '~~/shared/projects'
 import { INDICES, INDEX_CATEGORIES } from '~~/shared/indices'
+import { RES_DEFS, TABLE_COST, QUORUM } from '~~/shared/committee'
 import { STRATEGIES, GOV_LABEL } from '~~/shared/rules'
 import { effectChips } from '~/utils/effects'
 
@@ -12,7 +13,7 @@ const TOC = [
   ['start', 'Quick start'], ['clock', 'Time & pacing'], ['globe', 'The globe'], ['found', 'Founding a nation'], ['government', 'The Government'],
   ['power', 'Power & elections'], ['causality', 'Cause & effect'], ['forces', 'Long-term forces'],
   ['economy', 'Industries'], ['budget', 'Taxes, budget & debt'], ['policies', 'Policy reference'], ['provinces', 'Provinces & projects'],
-  ['politics', 'Factions & stability'], ['foreign', 'Trade & foreign policy'], ['war', 'War'], ['soft', 'Soft power & the World Games'],
+  ['politics', 'Factions & stability'], ['foreign', 'Trade & foreign policy'], ['committee', 'The World Committee'], ['war', 'War'], ['soft', 'Soft power & the World Games'],
   ['indices', 'Index glossary'], ['strategies', 'Strategies'], ['data', 'Data & methodology'], ['faq', 'Shortcuts & FAQ'], ['dev', 'Running a server'],
 ] as const
 const active = ref('start')
@@ -295,6 +296,19 @@ const TOOLS = [
           <h2>Trade & foreign policy</h2>
           <p>Trade follows a gravity model: big economies that are close, open and friendly trade more. Every flow creates <b>dependence</b>, and dependence is <b>influence</b>. AI nations weigh their attitude to you from ideology, trade, your influence over them, your soft power, shared enemies, alliances, sanctions and grievances.</p>
           <table class="tbl"><tbody><tr v-for="[t, d] in TOOLS" :key="t"><td class="nowrap"><b>{{ t }}</b></td><td>{{ d }}</td></tr></tbody></table>
+        </section>
+
+        <section id="committee">
+          <h2>The World Committee</h2>
+          <p>Every nation has a seat at the <b>World Committee</b> (🌐 in the top bar). Any government can table a resolution for ⚡{{ TABLE_COST }} political capital. The vote stays open for a game month, and every delegate can address the floor.</p>
+          <ul>
+            <li><b>Votes weigh by global influence.</b> Trade dependence, aid and alliances buy you a louder voice. Small nations still count (every seat carries a floor of 2).</li>
+            <li><b>It passes</b> when yes outweighs no and yes carries at least {{ QUORUM * 100 }}% of all the world's votes. Silence counts as abstaining.</li>
+            <li><b>The security council</b> is the five nations with the most comprehensive national power, refreshed every year. A council member who votes no on sanctions, a condemnation or a ceasefire <b>vetoes</b> it.</li>
+            <li><b>AI delegates</b> vote on their interests and ideology: green nations back climate accords, oil exporters don't; open traders back free-trade rounds; the poor back development funds; democracies punish aggressors.</li>
+          </ul>
+          <table class="tbl"><tbody><tr v-for="d in Object.values(RES_DEFS)" :key="d.kind"><td class="nowrap"><b>{{ d.icon }} {{ d.label }}</b><div v-if="d.security" class="muted small">security · vetoable</div></td><td>{{ d.desc }}</td></tr></tbody></table>
+          <div class="callout">💡 Accords bind only the nations that voted yes. Raise a tariff above a trade round's cap or scrap carbon pricing under a climate accord and the world sees you break it: legitimacy and diplomatic standing fall, and the other parties remember.</div>
         </section>
 
         <section id="war">

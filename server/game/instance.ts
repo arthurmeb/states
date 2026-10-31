@@ -6,6 +6,7 @@ import { claim, login, accountOf } from './accounts'
 import { roomsFor, canSee, createThread, openDM, createGroup, editGroup, say, history } from './comms'
 import { propose, respond, renounce, normalize, compileContext } from './deals'
 import { compileDeal, llmEnabled } from './llm'
+import { table, vote, speak } from './committee'
 import type { RoomMsg } from '../../shared/types'
 import { callElection, campaign, noConfidence, spendPC, partyName } from './power'
 import { ELECTORAL, PARTY_MAP } from '../../shared/power'
@@ -168,6 +169,22 @@ export function handle(id: string, raw: string) {
       else renounce(game, me, +msg.id)
       pushComms(s, game.dealMsgs.splice(0))
       for (const o of s.clients.values()) sendDeals(s, o)
+      return broadcast(s)
+    }
+    // ── the World Committee: table resolutions, vote, address the floor ──
+    if (msg.t === 'resTable' || msg.t === 'resVote' || msg.t === 'resSpeak') {
+      if (!me) throw new GameError('Found a nation to take your seat at the World Committee.')
+      if (msg.t === 'resTable') {
+        const r = table(game, me, { kind: msg.kind, target: msg.target ?? null, target2: msg.target2 ?? null, title: String(msg.title ?? ''), text: String(msg.text ?? ''), rate: msg.rate == null ? undefined : +msg.rate, years: msg.years == null ? undefined : +msg.years })
+        send(c, { t: 'toast', msg: `🏛 “${r.title}” is on the floor. The vote closes in a month.` })
+      } else if (msg.t === 'resVote') vote(game, me, +msg.id, msg.vote)
+      else {
+        const now = Date.now()
+        c.said = (c.said ?? []).filter(t => now - t < 10_000)
+        if (c.said.length >= 6) throw new GameError('Slow down a little.')
+        c.said.push(now)
+        speak(game, me, accountOf(game.accounts, c.token), +msg.id, String(msg.text ?? ''))
+      }
       return broadcast(s)
     }
     if (['thread', 'say', 'dm', 'group', 'groupEdit'].includes(msg.t)) {

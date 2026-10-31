@@ -1,4 +1,5 @@
 import type { Deal, Clause } from './deals'
+import type { CommitteeView, ResKind, Vote } from './committee'
 import type { SectorId } from './sectors'
 import type { BlocId, LocalPolicyId, Ideology } from './policies'
 import type { Cond } from './conditions'
@@ -208,6 +209,7 @@ export interface StateMsg {
   myProvinces: ProvinceDetail[]
   proposals: Proposal[]
   issue: Issue | null
+  committee: CommitteeView
 }
 
 export type ClientMsg =
@@ -256,6 +258,9 @@ export type ClientMsg =
   | { t: 'dealPropose'; to: number; title: string; text: string; clauses: Record<string, unknown>[]; notes?: string }
   | { t: 'dealRespond'; id: number; accept: boolean }
   | { t: 'dealRenounce'; id: number }
+  | { t: 'resTable'; kind: ResKind; target?: number | null; target2?: number | null; title?: string; text?: string; rate?: number; years?: number }
+  | { t: 'resVote'; id: number; vote: Vote }
+  | { t: 'resSpeak'; id: number; text: string }
   | { t: 'capital'; province: number }
   | { t: 'inspect'; province: number }
   | { t: 'abandon' }
